@@ -2,8 +2,11 @@
 
 A browser-based vector graphics editor built with Paper.js, React, and TypeScript. Create, edit, and export vector shapes — including an advanced PNG-to-vector auto-tracer powered by the marching squares algorithm.
 
-<!-- TODO: Add a screenshot or GIF demo here -->
-<!-- ![Shape Forge Screenshot](docs/screenshot.png) -->
+![Shape Forge Export](docs/shape-forge-export.png)
+
+https://github.com/newjordan/shape-forge/raw/main/docs/shape_forge.mp4
+
+> *See it in action — [watch the demo video](docs/shape_forge.mp4)*
 
 ## Features
 
@@ -91,6 +94,48 @@ src/
     ├── PropertiesPanel.tsx    # Right panel transform & style controls
     ├── ImageTraceModal.tsx    # PNG trace popup with live preview
     └── ExportPanel.tsx        # SVG/PNG export controls
+```
+
+## Export Examples
+
+Shapes created in Shape Forge can be exported as SVG and used directly in CSS via `clip-path`:
+
+### CSS `clip-path` Usage
+
+```css
+/* Shape Forge Export */
+.shape-element {
+  width: 300px;
+  height: 300px;
+  background: linear-gradient(135deg, #4a9eff, #0044ff);
+  clip-path: path('M122.26716,360.5c0,-49.28194 39.9509,-89.23284 89.23284,-89.23284c29.21156,0 55.1447,14.03655 71.42261,35.73284h162.91294c-2.85278,-8.13791 -4.404,-16.8878 -4.404,-26c0,-43.39215 35.17629,-78.56844 78.56844,-78.56844c43.39215,0 78.56844,35.17629 78.56844,78.56844c0,35.02194 -22.91438,64.69195 -54.56844,74.83531v16.55911c41.85141,5.1715 74.24963,40.85503 74.24963,84.10558c0,46.80593 -37.9437,84.74963 -84.74963,84.74963c-46.80593,0 -84.74963,-37.9437 -84.74963,-84.74963c0,-13.46406 3.13971,-26.1948 8.72692,-37.5h-178.59411c-16.36025,18.82837 -40.48149,30.73284 -67.38318,30.73284c-49.28194,0 -89.23284,-39.9509 -89.23284,-89.23284z');
+  /* Optional effects */
+  /* box-shadow: 0 0 30px rgba(74, 158, 255, 0.4); */
+  /* backdrop-filter: blur(10px); */
+}
+```
+
+### Raw SVG Output
+
+```xml
+<g xmlns="http://www.w3.org/2000/svg" id="draw" fill="none" fill-rule="nonzero"
+   stroke="none" stroke-width="none" stroke-linecap="butt" stroke-linejoin="miter"
+   stroke-miterlimit="10" stroke-dasharray="none" stroke-dashoffset="0"
+   style="mix-blend-mode: normal">
+  <path d="M122.26716,360.5c0,-49.28194 39.9509,-89.23284 89.23284,-89.23284
+    c29.21156,0 55.1447,14.03655 71.42261,35.73284h162.91294
+    c-2.85278,-8.13791 -4.404,-16.8878 -4.404,-26
+    c0,-43.39215 35.17629,-78.56844 78.56844,-78.56844
+    c43.39215,0 78.56844,35.17629 78.56844,78.56844
+    c0,35.02194 -22.91438,64.69195 -54.56844,74.83531v16.55911
+    c41.85141,5.1715 74.24963,40.85503 74.24963,84.10558
+    c0,46.80593 -37.9437,84.74963 -84.74963,84.74963
+    c-46.80593,0 -84.74963,-37.9437 -84.74963,-84.74963
+    c0,-13.46406 3.13971,-26.1948 8.72692,-37.5h-178.59411
+    c-16.36025,18.82837 -40.48149,30.73284 -67.38318,30.73284
+    c-49.28194,0 -89.23284,-39.9509 -89.23284,-89.23284z"
+    fill="#4a9eff" stroke="#ffffff" stroke-width="7"/>
+</g>
 ```
 
 ## Contributing
