@@ -1,5 +1,5 @@
 import paper from 'paper'
-import type { ShapeStyle, BooleanOp } from './types'
+import type { ShapeStyle, BooleanOp, TraceChannel, TraceOptions, ContourData, TraceResult } from './types'
 
 let _scope: paper.PaperScope | null = null
 
@@ -270,5 +270,363 @@ export function exportPNG(scale = 2): Promise<Blob> {
       }, 'image/png')
     })
   })
+}
+
+// --- Image Trace (Advanced Pipeline) ---
+
+export function loadImageFromFile(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img) }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Failed to load image')) }
+    img.src = url
+  })
+}
+
+/** Separable Gaussian blur on a Float32Array field */
+function gaussianBlur(field: Float32Array, w: number, h: number, radius: number): Float32Array {
+  if (radius <= 0) return field
+  const sigma = radius / 2
+  const ks = Math.ceil(sigma * 3) | 0
+  const size = ks * 2 + 1
+  const kernel = new Float32Array(size)
+  let sum = 0
+  for (let i = 0; i < size; i++) {
+    const x = i - ks
+    kernel[i] = Math.exp(-(x * x) / (2 * sigma * sigma))
+    sum += kernel[i]
+  }
+  for (let i = 0; i < size; i++) kernel[i] /= sum
+
+  // Horizontal pass
+  const temp = new Float32Array(w * h)
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let v = 0
+      for (let k = -ks; k <= ks; k++) {
+        const sx = Math.min(w - 1, Math.max(0, x + k))
+        v += field[y * w + sx] * kernel[k + ks]
+      }
+      temp[y * w + x] = v
+    }
+  }
+  // Vertical pass
+  const out = new Float32Array(w * h)
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let v = 0
+      for (let k = -ks; k <= ks; k++) {
+        const sy = Math.min(h - 1, Math.max(0, y + k))
+        v += temp[sy * w + x] * kernel[k + ks]
+      }
+      out[y * w + x] = v
+    }
+  }
+  return out
+}
+
+/** Extract scalar field from RGBA pixels by channel */
+function extractScalarField(
+  pixels: Uint8ClampedArray, w: number, h: number,
+  channel: TraceChannel, invert: boolean,
+): Float32Array {
+  const field = new Float32Array(w * h)
+  for (let i = 0; i < w * h; i++) {
+    const r = pixels[i * 4] / 255
+    const g = pixels[i * 4 + 1] / 255
+    const b = pixels[i * 4 + 2] / 255
+    const a = pixels[i * 4 + 3] / 255
+    let v: number
+    switch (channel) {
+      case 'alpha': v = a; break
+      case 'luminance': v = 0.299 * r + 0.587 * g + 0.114 * b; break
+      case 'red': v = r; break
+      case 'green': v = g; break
+      case 'blue': v = b; break
+    }
+    field[i] = invert ? 1 - v : v
+  }
+  return field
+}
+
+/** Signed area via shoelace formula. Positive = CCW (outer), Negative = CW (hole) */
+function signedArea(pts: { x: number; y: number }[]): number {
+  let a = 0
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    a += (pts[j].x - pts[i].x) * (pts[j].y + pts[i].y)
+  }
+  return a / 2
+}
+
+/** Marching squares: extract iso-contours from a 2D scalar field. */
+function extractContours(
+  field: Float32Array, width: number, height: number, iso: number,
+): { x: number; y: number }[][] {
+  const lerp = (v1: number, v2: number) =>
+    Math.abs(v2 - v1) < 1e-10 ? 0.5 : (iso - v1) / (v2 - v1)
+
+  type Pt = { x: number; y: number }
+  type Seg = [Pt, Pt]
+  const segments: Seg[] = []
+
+  for (let j = 0; j < height - 1; j++) {
+    for (let i = 0; i < width - 1; i++) {
+      const tl = field[j * width + i]
+      const tr = field[j * width + i + 1]
+      const br = field[(j + 1) * width + i + 1]
+      const bl = field[(j + 1) * width + i]
+
+      let c = 0
+      if (tl >= iso) c |= 1
+      if (tr >= iso) c |= 2
+      if (br >= iso) c |= 4
+      if (bl >= iso) c |= 8
+      if (c === 0 || c === 15) continue
+
+      const top: Pt = { x: i + lerp(tl, tr), y: j }
+      const right: Pt = { x: i + 1, y: j + lerp(tr, br) }
+      const bottom: Pt = { x: i + lerp(bl, br), y: j + 1 }
+      const left: Pt = { x: i, y: j + lerp(tl, bl) }
+
+      switch (c) {
+        case 1: segments.push([left, top]); break
+        case 2: segments.push([top, right]); break
+        case 3: segments.push([left, right]); break
+        case 4: segments.push([right, bottom]); break
+        case 5: {
+          const ctr = (tl + tr + br + bl) / 4
+          if (ctr >= iso) { segments.push([left, top]); segments.push([right, bottom]) }
+          else { segments.push([left, bottom]); segments.push([top, right]) }
+          break
+        }
+        case 6: segments.push([top, bottom]); break
+        case 7: segments.push([left, bottom]); break
+        case 8: segments.push([bottom, left]); break
+        case 9: segments.push([bottom, top]); break
+        case 10: {
+          const ctr = (tl + tr + br + bl) / 4
+          if (ctr >= iso) { segments.push([top, right]); segments.push([bottom, left]) }
+          else { segments.push([top, left]); segments.push([bottom, right]) }
+          break
+        }
+        case 11: segments.push([bottom, right]); break
+        case 12: segments.push([right, left]); break
+        case 13: segments.push([right, top]); break
+        case 14: segments.push([top, left]); break
+      }
+    }
+  }
+  if (segments.length === 0) return []
+
+  // Chain segments into closed contours
+  const key = (p: Pt) => `${p.x.toFixed(4)},${p.y.toFixed(4)}`
+  const adj = new Map<string, number[]>()
+  for (let si = 0; si < segments.length; si++) {
+    for (const pt of segments[si]) {
+      const k = key(pt)
+      if (!adj.has(k)) adj.set(k, [])
+      adj.get(k)!.push(si)
+    }
+  }
+
+  const used = new Set<number>()
+  const contours: Pt[][] = []
+  for (let si = 0; si < segments.length; si++) {
+    if (used.has(si)) continue
+    const contour: Pt[] = [segments[si][0]]
+    let end = segments[si][1]
+    used.add(si)
+    while (true) {
+      contour.push(end)
+      const k = key(end)
+      const next = (adj.get(k) || []).find((i) => !used.has(i))
+      if (next === undefined) break
+      used.add(next)
+      const seg = segments[next]
+      end = key(seg[0]) === k ? seg[1] : seg[0]
+    }
+    if (contour.length >= 4) contours.push(contour)
+  }
+  return contours
+}
+
+/** Load image and extract pixel data at a scaled resolution. */
+export function loadImagePixels(
+  img: HTMLImageElement, maxDim = 800,
+): { pixels: Uint8ClampedArray; sw: number; sh: number; ds: number } {
+  let sw = img.naturalWidth, sh = img.naturalHeight
+  const ds = Math.min(1, maxDim / Math.max(sw, sh))
+  sw = Math.round(sw * ds); sh = Math.round(sh * ds)
+  const offscreen = document.createElement('canvas')
+  offscreen.width = sw; offscreen.height = sh
+  const ctx = offscreen.getContext('2d')!
+  ctx.drawImage(img, 0, 0, sw, sh)
+  return { pixels: ctx.getImageData(0, 0, sw, sh).data, sw, sh, ds }
+}
+
+/**
+ * Advanced trace pipeline: returns structured contour metadata.
+ * Does NOT create Paper.js paths — that's done separately in createPathsFromTrace.
+ */
+export function advancedTrace(
+  pixels: Uint8ClampedArray, sw: number, sh: number, ds: number,
+  options: TraceOptions,
+): TraceResult {
+  const { channel, threshold, blurRadius, minArea, invert } = options
+  const upscale = 1 / ds
+
+  // 1. Extract scalar field from chosen channel
+  let field = extractScalarField(pixels, sw, sh, channel, invert)
+
+  // 2. Optional Gaussian blur for noise reduction
+  if (blurRadius > 0) {
+    field = gaussianBlur(field, sw, sh, blurRadius)
+  }
+
+  // 3. Marching squares
+  const rawContours = extractContours(field, sw, sh, threshold / 255)
+
+  // 4. Build structured contour data with area, winding, bounds
+  const contours: ContourData[] = []
+  let contourId = 0
+  for (const pts of rawContours) {
+    // Scale points to original image coords
+    const scaled = pts.map(p => ({ x: p.x * upscale, y: p.y * upscale }))
+    const sa = signedArea(scaled)
+    const area = Math.abs(sa)
+    if (area < minArea) continue
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const p of scaled) {
+      if (p.x < minX) minX = p.x
+      if (p.y < minY) minY = p.y
+      if (p.x > maxX) maxX = p.x
+      if (p.y > maxY) maxY = p.y
+    }
+
+    contours.push({
+      id: contourId++,
+      points: scaled,
+      area,
+      bounds: { x: minX, y: minY, w: maxX - minX, h: maxY - minY },
+      isHole: sa > 0, // CW = positive signed area = hole
+      enabled: true,
+      pointCount: scaled.length,
+    })
+  }
+
+  // Sort: outer contours (large) first, holes after
+  contours.sort((a, b) => {
+    if (a.isHole !== b.isHole) return a.isHole ? 1 : -1
+    return b.area - a.area
+  })
+
+  return {
+    contours,
+    imageWidth: Math.round(sw / ds),
+    imageHeight: Math.round(sh / ds),
+    scaledWidth: sw,
+    scaledHeight: sh,
+    downscale: ds,
+  }
+}
+
+/**
+ * Materialize Paper.js paths from trace contours and add to the draw layer.
+ * Only creates paths from enabled contours.
+ */
+export function createPathsFromTrace(
+  traceResult: TraceResult,
+  style: ShapeStyle,
+  simplifyTolerance: number,
+  pathOffset: number,
+  _cornerAngle: number,
+): paper.PathItem | null {
+  const enabledContours = traceResult.contours.filter(c => c.enabled)
+  if (enabledContours.length === 0) return null
+
+  const drawLayer = getDrawLayer()
+  drawLayer.activate()
+
+  // Build all sub-paths detached (insert: false) first
+  const paths: paper.Path[] = []
+  for (const contour of enabledContours) {
+    if (contour.points.length < 3) continue
+    const path = new paper.Path({ insert: false })
+    for (const pt of contour.points) {
+      path.add(new paper.Point(pt.x, pt.y))
+    }
+    path.closePath()
+    if (simplifyTolerance > 0) path.simplify(simplifyTolerance)
+
+    if (pathOffset !== 0) {
+      const offsetPath = PaperOffset.offsetPath(path, pathOffset)
+      if (offsetPath) { paths.push(offsetPath); continue }
+    }
+    paths.push(path)
+  }
+  if (paths.length === 0) return null
+
+  // Combine into a single item — keep everything detached until the end
+  let result: paper.PathItem
+  if (paths.length === 1) {
+    result = paths[0]
+  } else {
+    result = new paper.CompoundPath({ children: paths, insert: false })
+  }
+
+  // NOW insert the final item into the draw layer
+  drawLayer.addChild(result)
+
+  // ----- fit & center onto the visible canvas -----
+  const view = getScope().view
+  // view.viewSize is in CSS-pixel coords; view.center is in project coords.
+  // Because we set view.scaling = (dpr, dpr), project coords = CSS coords
+  // (viewToProject just divides by scaling, but scaling is already baked in).
+  // Use viewSize for the fit calculation so the math is DPI-independent.
+  const vw = view.viewSize.width
+  const vh = view.viewSize.height
+
+  const sb = result.bounds
+  console.log('[trace] shape bounds BEFORE scale:', sb.x, sb.y, sb.width, sb.height)
+  console.log('[trace] view.viewSize:', vw, vh, 'view.center:', view.center.x, view.center.y)
+  console.log('[trace] view.bounds:', view.bounds.x, view.bounds.y, view.bounds.width, view.bounds.height)
+
+  const shapeMax = Math.max(sb.width, sb.height)
+  if (shapeMax > 0.5) {
+    const maxFit = Math.min(vw, vh) * 0.6
+    const fitScale = maxFit / shapeMax
+    result.scale(fitScale)
+    console.log('[trace] fitScale:', fitScale, '→ new bounds:', result.bounds.width, result.bounds.height)
+  }
+
+  // Place at the center of the visible viewport
+  result.position = view.center
+  console.log('[trace] final position:', result.position.x, result.position.y)
+
+  applyStyle(result, style)
+  return result
+}
+
+/** Simple path offset using Paper.js — expand or contract a path */
+const PaperOffset = {
+  offsetPath(path: paper.Path, offset: number): paper.Path | null {
+    try {
+      // Use normal-based offset: move each point along its normal
+      const result = path.clone({ insert: false }) as paper.Path
+      for (let i = 0; i < result.segments.length; i++) {
+        const seg = result.segments[i]
+        const normal = result.getNormalAt(result.getOffsetOf(seg.point))
+        if (normal) {
+          seg.point = seg.point.add(normal.multiply(offset))
+        }
+      }
+      result.simplify(1)
+      return result
+    } catch {
+      return null
+    }
+  },
 }
 

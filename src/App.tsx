@@ -1,15 +1,62 @@
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import Canvas from './components/Canvas'
 import Toolbar from './components/Toolbar'
 import PropertiesPanel from './components/PropertiesPanel'
 import ExportPanel from './components/ExportPanel'
+import ImageTraceModal from './components/ImageTraceModal'
 import { useStore } from './store'
+import { createPathsFromTrace, getProject, nextId } from './engine'
+import type { ShapeItem, TraceResult, TraceOptions } from './types'
 
 export default function App() {
   const [showExport, setShowExport] = useState(false)
+  const [traceFile, setTraceFile] = useState<File | null>(null)
+  const traceFileInputRef = useRef<HTMLInputElement>(null)
   const canUndo = useStore((s) => s.canUndo())
   const canRedo = useStore((s) => s.canRedo())
   const activeTool = useStore((s) => s.activeTool)
+  const currentStyle = useStore((s) => s.currentStyle)
+
+  const handleOpenTrace = () => {
+    traceFileInputRef.current?.click()
+  }
+
+  const handleTraceFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) setTraceFile(file)
+    if (traceFileInputRef.current) traceFileInputRef.current.value = ''
+  }
+
+  const handleTraceAccept = (result: TraceResult, options: TraceOptions) => {
+    const pathItem = createPathsFromTrace(result, currentStyle, options.simplifyTolerance, options.pathOffset, options.cornerAngle)
+    if (pathItem) {
+      const id = nextId()
+      pathItem.data = { shapeId: id }
+      console.log('[trace-accept] created item id:', pathItem.id, 'shapeId:', id,
+        'type:', pathItem.className, 'bounds:', pathItem.bounds.width, 'x', pathItem.bounds.height,
+        'pos:', pathItem.position.x, pathItem.position.y,
+        'parent:', pathItem.parent?.name)
+      const store = useStore.getState()
+      const shapeItem: ShapeItem = {
+        id,
+        name: `trace ${store.shapes.length + 1}`,
+        paperItemId: pathItem.id,
+        style: { ...currentStyle },
+        visible: true,
+        locked: false,
+      }
+      store.addShape(shapeItem)
+      store.setSelectedShapeIds([id])
+      store.pushHistory({
+        json: getProject().exportJSON(),
+        shapes: useStore.getState().shapes,
+        description: 'Image trace',
+      })
+    } else {
+      console.warn('[trace-accept] createPathsFromTrace returned null!')
+    }
+    setTraceFile(null)
+  }
 
   return (
     <div style={styles.app}>
@@ -54,13 +101,31 @@ export default function App() {
 
       {/* Main area */}
       <div style={styles.main}>
-        <Toolbar />
+        <Toolbar onOpenTrace={handleOpenTrace} />
         <div style={styles.canvasArea}>
           <Canvas />
           {showExport && <ExportPanel />}
         </div>
         <PropertiesPanel />
       </div>
+
+      {/* Hidden file input for trace import */}
+      <input
+        ref={traceFileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        style={{ display: 'none' }}
+        onChange={handleTraceFileSelected}
+      />
+
+      {/* Image Trace Modal */}
+      {traceFile && (
+        <ImageTraceModal
+          file={traceFile}
+          onAccept={handleTraceAccept}
+          onCancel={() => setTraceFile(null)}
+        />
+      )}
     </div>
   )
 }

@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useCallback } from 'react'
 import paper from 'paper'
 import { useStore } from '../store'
 import {
-  initEngine, getProject, getDrawLayer, nextId, applyStyle,
+  initEngine, getScope, getProject, getDrawLayer, nextId, applyStyle,
   createRectangle, createCircle, createRoundedRect, createPolygon, createStar,
 } from '../engine'
 import type { ShapeItem, HistoryEntry } from '../types'
@@ -677,6 +677,33 @@ export default function Canvas() {
       if (e.key === 'r' || e.key === 'R') setActiveTool('rectangle')
       if (e.key === 'o' || e.key === 'O') setActiveTool('circle')
       if (e.key === 'p' || e.key === 'P') setActiveTool('pen')
+      if (e.key === 'f' || e.key === 'F') {
+        // Focus / zoom-to-fit on selection (or all shapes if nothing selected)
+        const state = useStore.getState()
+        const drawLayer = getDrawLayer()
+        const ids = state.selectedShapeIds.length > 0
+          ? state.selectedShapeIds
+          : state.shapes.map(s => s.id)
+        if (ids.length === 0) return
+
+        let combined: paper.Rectangle | null = null
+        for (const sid of ids) {
+          const item = drawLayer.children.find(c => c.data?.shapeId === sid)
+          if (item) {
+            combined = combined ? combined.unite(item.bounds) : item.bounds.clone()
+          }
+        }
+        if (!combined) return
+
+        const view = getScope().view
+        // Center on the combined bounds
+        view.center = combined.center
+        // Zoom to fit with some padding
+        const pad = 1.3
+        const zoomX = view.viewSize.width / (combined.width * pad)
+        const zoomY = view.viewSize.height / (combined.height * pad)
+        view.zoom = Math.min(zoomX, zoomY, 5)
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         deleteSelected()
       }

@@ -22,7 +22,11 @@ const boolOps: { id: BooleanOp; label: string; icon: string }[] = [
   { id: 'exclude', label: 'Exclude', icon: '⊘' },
 ]
 
-export default function Toolbar() {
+interface ToolbarProps {
+  onOpenTrace: () => void
+}
+
+export default function Toolbar({ onOpenTrace }: ToolbarProps) {
   const activeTool = useStore((s) => s.activeTool)
   const setActiveTool = useStore((s) => s.setActiveTool)
   const selectedShapeIds = useStore((s) => s.selectedShapeIds)
@@ -189,6 +193,23 @@ export default function Toolbar() {
             </button>
           ))}
         </div>
+      </div>
+
+      <div style={styles.divider} />
+
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>IMAGE TRACE</div>
+        <div style={styles.hint}>Import a PNG — trace outlines to vector paths with full controls</div>
+        <button
+          onClick={onOpenTrace}
+          style={{
+            ...styles.mergeBtn,
+            width: '100%',
+            marginTop: 6,
+          }}
+        >
+          📷 Import &amp; Trace PNG
+        </button>
       </div>
 
       <div style={styles.divider} />
