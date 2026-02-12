@@ -1,0 +1,52 @@
+export type ToolType =
+  | 'select'
+  | 'rectangle'
+  | 'circle'
+  | 'roundedRect'
+  | 'polygon'
+  | 'star'
+  | 'pen'
+
+export type BooleanOp = 'unite' | 'subtract' | 'intersect' | 'exclude'
+
+export interface ShapeStyle {
+  fillColor: string | null
+  strokeColor: string
+  strokeWidth: number
+  opacity: number
+}
+
+export interface ShapeItem {
+  id: string
+  name: string
+  paperItemId: number
+  style: ShapeStyle
+  visible: boolean
+  locked: boolean
+}
+
+export interface HistoryEntry {
+  json: string
+  shapes: ShapeItem[]
+  description: string
+}
+
+export const DEFAULT_STYLE: ShapeStyle = {
+  fillColor: '#4a9eff',
+  strokeColor: '#ffffff',
+  strokeWidth: 0,
+  opacity: 1,
+}
+
+export const STYLE_PRESETS: Record<string, ShapeStyle> = {
+  'Neon Blue': { fillColor: '#0044ff', strokeColor: '#00ccff', strokeWidth: 2, opacity: 0.9 },
+  'Neon Pink': { fillColor: '#ff0066', strokeColor: '#ff66aa', strokeWidth: 2, opacity: 0.9 },
+  'Hologram': { fillColor: '#00ffcc', strokeColor: '#00ff88', strokeWidth: 1, opacity: 0.6 },
+  'Dark Metal': { fillColor: '#2a2a3e', strokeColor: '#5a5a7e', strokeWidth: 1, opacity: 1 },
+  'Liquid Gold': { fillColor: '#cc8800', strokeColor: '#ffcc44', strokeWidth: 1, opacity: 0.95 },
+  'Glass': { fillColor: '#ffffff', strokeColor: '#aaaacc', strokeWidth: 1, opacity: 0.15 },
+  'Ember': { fillColor: '#ff3300', strokeColor: '#ff8844', strokeWidth: 1, opacity: 0.85 },
+  'Void': { fillColor: '#0a0a1a', strokeColor: '#3a3a6e', strokeWidth: 2, opacity: 1 },
+  'Outline': { fillColor: null, strokeColor: '#ffffff', strokeWidth: 2, opacity: 1 },
+}
+
