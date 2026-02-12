@@ -1,18 +1,42 @@
 {
-  "name": "framer",
-  "private": true,
-  "version": "0.0.0",
+  "name": "shape-forge",
+  "version": "0.1.0",
+  "description": "A browser-based vector graphics editor with PNG auto-tracing, built with Paper.js, React, and TypeScript",
   "type": "module",
+  "license": "MIT",
+  "author": "Shape Forge Contributors",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/newjordan/shape-forge.git"
+  },
+  "keywords": [
+    "vector-graphics",
+    "svg-editor",
+    "paper-js",
+    "image-tracing",
+    "marching-squares",
+    "react",
+    "typescript",
+    "canvas"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\""
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.4",
+    "eslint": "^9.39.2",
+    "prettier": "^3.8.1",
     "typescript": "~5.9.3",
+    "typescript-eslint": "^8.55.0",
     "vite": "^7.3.1"
   },
   "dependencies": {

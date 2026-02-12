@@ -589,21 +589,15 @@ export function createPathsFromTrace(
   const vh = view.viewSize.height
 
   const sb = result.bounds
-  console.log('[trace] shape bounds BEFORE scale:', sb.x, sb.y, sb.width, sb.height)
-  console.log('[trace] view.viewSize:', vw, vh, 'view.center:', view.center.x, view.center.y)
-  console.log('[trace] view.bounds:', view.bounds.x, view.bounds.y, view.bounds.width, view.bounds.height)
-
   const shapeMax = Math.max(sb.width, sb.height)
   if (shapeMax > 0.5) {
     const maxFit = Math.min(vw, vh) * 0.6
     const fitScale = maxFit / shapeMax
     result.scale(fitScale)
-    console.log('[trace] fitScale:', fitScale, '→ new bounds:', result.bounds.width, result.bounds.height)
   }
 
   // Place at the center of the visible viewport
   result.position = view.center
-  console.log('[trace] final position:', result.position.x, result.position.y)
 
   applyStyle(result, style)
   return result

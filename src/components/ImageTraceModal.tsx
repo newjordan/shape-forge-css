@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
-import type { TraceOptions, TraceResult, ContourData } from '../types'
+import type { TraceOptions, TraceResult } from '../types'
 import { DEFAULT_TRACE_OPTIONS } from '../types'
 import { loadImageFromFile, loadImagePixels, advancedTrace } from '../engine'
 
@@ -33,8 +33,8 @@ export default function ImageTraceModal({ file, onAccept, onCancel }: Props) {
         if (cancelled) return
         setPixelData(pd)
         setLoading(false)
-      } catch (err) {
-        console.error('Failed to load image:', err)
+      } catch {
+        // image load failed — silently ignore
       }
     })()
     return () => { cancelled = true }

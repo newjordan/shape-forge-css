@@ -32,10 +32,6 @@ export default function App() {
     if (pathItem) {
       const id = nextId()
       pathItem.data = { shapeId: id }
-      console.log('[trace-accept] created item id:', pathItem.id, 'shapeId:', id,
-        'type:', pathItem.className, 'bounds:', pathItem.bounds.width, 'x', pathItem.bounds.height,
-        'pos:', pathItem.position.x, pathItem.position.y,
-        'parent:', pathItem.parent?.name)
       const store = useStore.getState()
       const shapeItem: ShapeItem = {
         id,
@@ -52,8 +48,6 @@ export default function App() {
         shapes: useStore.getState().shapes,
         description: 'Image trace',
       })
-    } else {
-      console.warn('[trace-accept] createPathsFromTrace returned null!')
     }
     setTraceFile(null)
   }
