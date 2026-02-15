@@ -39,9 +39,97 @@ export function applyStyle(item: paper.Item, style: ShapeStyle) {
     item.strokeWidth = 0
   }
   item.opacity = style.opacity
+  // Dash array
+  if (style.dashArray && style.dashArray.length > 0) {
+    item.dashArray = style.dashArray
+  } else {
+    item.dashArray = []
+  }
+  // Stroke cap & join
+  if (style.strokeCap) {
+    item.strokeCap = style.strokeCap
+  }
+  if (style.strokeJoin) {
+    item.strokeJoin = style.strokeJoin
+  }
+  // Drop shadow
+  if (style.shadowColor) {
+    item.shadowColor = new paper.Color(style.shadowColor)
+    item.shadowBlur = style.shadowBlur ?? 0
+    item.shadowOffset = new paper.Point(style.shadowOffsetX ?? 0, style.shadowOffsetY ?? 0)
+  } else {
+    item.shadowColor = null as any
+    item.shadowBlur = 0
+    item.shadowOffset = new paper.Point(0, 0)
+  }
+  // Arrow markers (store in data for overlay drawing)
+  if (item.data) {
+    item.data.arrowStart = !!style.arrowStart
+    item.data.arrowEnd = !!style.arrowEnd
+  }
+}
+
+/** Draw arrow marker triangles for a line item. Returns a Group with arrow paths, or null. */
+export function drawArrowMarkers(item: paper.Item, style: ShapeStyle): paper.Group | null {
+  if (!style.arrowStart && !style.arrowEnd) return null
+  if (!(item instanceof paper.Path) || item.segments.length < 2) return null
+  const strokeColor = style.strokeWidth > 0 ? new paper.Color(style.strokeColor) : new paper.Color('#ffffff')
+  const arrowSize = Math.max(8, (style.strokeWidth || 1) * 4)
+  const children: paper.Item[] = []
+
+  if (style.arrowEnd) {
+    const lastSeg = item.segments[item.segments.length - 1]
+    const prevSeg = item.segments[item.segments.length - 2]
+    const dir = lastSeg.point.subtract(prevSeg.point).normalize()
+    const tip = lastSeg.point
+    const perp = dir.rotate(90, new paper.Point(0, 0))
+    const base = tip.subtract(dir.multiply(arrowSize))
+    const tri = new paper.Path([
+      tip,
+      base.add(perp.multiply(arrowSize * 0.4)),
+      base.subtract(perp.multiply(arrowSize * 0.4)),
+    ])
+    tri.closed = true
+    tri.fillColor = strokeColor
+    tri.data = { isArrowMarker: true }
+    children.push(tri)
+  }
+
+  if (style.arrowStart) {
+    const firstSeg = item.segments[0]
+    const nextSeg = item.segments[1]
+    const dir = firstSeg.point.subtract(nextSeg.point).normalize()
+    const tip = firstSeg.point
+    const perp = dir.rotate(90, new paper.Point(0, 0))
+    const base = tip.subtract(dir.multiply(arrowSize))
+    const tri = new paper.Path([
+      tip,
+      base.add(perp.multiply(arrowSize * 0.4)),
+      base.subtract(perp.multiply(arrowSize * 0.4)),
+    ])
+    tri.closed = true
+    tri.fillColor = strokeColor
+    tri.data = { isArrowMarker: true }
+    children.push(tri)
+  }
+
+  if (children.length === 0) return null
+  const grp = new paper.Group(children)
+  grp.data = { isArrowMarker: true }
+  return grp
 }
 
 // --- Shape creation ---
+
+export function createLine(from: paper.Point, to: paper.Point, style: ShapeStyle): paper.Path.Line {
+  const line = new paper.Path.Line({
+    from, to,
+    insert: true,
+  })
+  // Lines use stroke style only; fill is irrelevant
+  applyStyle(line, { ...style, fillColor: null })
+  return line
+}
 
 export function createRectangle(from: paper.Point, to: paper.Point, style: ShapeStyle): paper.Path.Rectangle {
   const rect = new paper.Path.Rectangle({
@@ -89,6 +177,48 @@ export function createStar(center: paper.Point, points: number, innerRadius: num
   })
   applyStyle(star, style)
   return star
+}
+
+/**
+ * Regenerate a primitive shape in-place: replace the existing Paper.js item
+ * with a new one using updated params, preserving position, rotation, and scale.
+ * Returns the new item (already inserted into the draw layer).
+ */
+export function regeneratePrimitive(
+  oldItem: paper.Item,
+  primitiveType: string,
+  params: { cornerRadius?: number; sides?: number; points?: number; innerRadius?: number; outerRadius?: number },
+  style: import('./types').ShapeStyle,
+): paper.Item | null {
+  const bounds = oldItem.bounds
+  const center = bounds.center
+  const from = bounds.topLeft
+  const to = bounds.bottomRight
+  const radius = Math.max(bounds.width, bounds.height) / 2
+
+  let newItem: paper.Item | null = null
+  switch (primitiveType) {
+    case 'roundedRect':
+      newItem = createRoundedRect(from, to, params.cornerRadius ?? 12, style)
+      break
+    case 'polygon':
+      newItem = createPolygon(center, params.sides ?? 6, radius, style)
+      break
+    case 'star':
+      newItem = createStar(center, params.points ?? 5, params.innerRadius ?? radius * 0.4, params.outerRadius ?? radius, style)
+      break
+    default:
+      return null
+  }
+
+  if (newItem) {
+    // Copy the shapeId data
+    newItem.data = { ...oldItem.data }
+    // Insert at the same position in the layer
+    oldItem.parent.insertChild(oldItem.index, newItem)
+    oldItem.remove()
+  }
+  return newItem
 }
 
 // --- Boolean operations ---
@@ -263,6 +393,48 @@ export function exportCSSClipPath(): string {
 export function exportPNG(scale = 2): Promise<Blob> {
   return new Promise((resolve) => {
     withCleanLayer((drawLayer) => {
+      const raster = drawLayer.rasterize({ resolution: 72 * scale, insert: false })
+      const canvas = raster.canvas as HTMLCanvasElement
+      canvas.toBlob((blob) => {
+        resolve(blob!)
+      }, 'image/png')
+    })
+  })
+}
+
+/**
+ * Temporarily hide non-selected items (and overlays), run callback, then restore.
+ */
+function withSelectedOnly<T>(selectedIds: string[], fn: (drawLayer: paper.Layer) => T): T {
+  const drawLayer = getDrawLayer()
+  const hidden: paper.Item[] = []
+  for (const child of drawLayer.children) {
+    if (child.visible) {
+      const sid = child.data?.shapeId
+      if (isExportExcluded(child) || !sid || !selectedIds.includes(sid)) {
+        child.visible = false
+        hidden.push(child)
+      }
+    }
+  }
+  try {
+    return fn(drawLayer)
+  } finally {
+    for (const item of hidden) {
+      item.visible = true
+    }
+  }
+}
+
+export function exportSelectedSVG(selectedIds: string[]): string {
+  return withSelectedOnly(selectedIds, (drawLayer) => {
+    return drawLayer.exportSVG({ asString: true }) as string
+  })
+}
+
+export function exportSelectedPNG(selectedIds: string[], scale = 2): Promise<Blob> {
+  return new Promise((resolve) => {
+    withSelectedOnly(selectedIds, (drawLayer) => {
       const raster = drawLayer.rasterize({ resolution: 72 * scale, insert: false })
       const canvas = raster.canvas as HTMLCanvasElement
       canvas.toBlob((blob) => {

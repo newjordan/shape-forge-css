@@ -2,11 +2,23 @@
 
 A browser-based vector graphics editor built with Paper.js, React, and TypeScript. Create, edit, and export vector shapes — including an advanced PNG-to-vector auto-tracer powered by the marching squares algorithm.
 
-![Shape Forge Demo](docs/shape_forge_demo.gif)
+## Quick Examples
 
-> *30-second preview — [watch the full demo video](docs/shape_forge.mp4)*
+### 1) Trace a PNG into editable vector paths
+1. Open **Image Trace**
+2. Pick a channel (**Alpha**, **Luminance**, or **RGB**)
+3. Tune the sliders (Threshold, Blur, Smoothing, Min Area, Offset, Corner Angle)
+4. Apply to create editable vector paths
 
-![Shape Forge Export](docs/shape-forge-export.png)
+### 2) Build shapes with boolean operations
+1. Draw a few primitives (Rectangle/Circle/Polygon/Star)
+2. Select multiple shapes
+3. Use **Union / Subtract / Intersect / Exclude** to combine them
+
+### 3) Export for the web
+1. Export to **SVG** for clean vector output
+2. Or export to **PNG** for raster output at a chosen resolution
+3. Use the **CSS clip-path** example below to drop exported paths into web UI
 
 ## Features
 
@@ -47,7 +59,7 @@ A browser-based vector graphics editor built with Paper.js, React, and TypeScrip
 ## Getting Started
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/) 18+ 
+- [Node.js](https://nodejs.org/) 18+
 - npm (comes with Node.js)
 
 ### Install & Run

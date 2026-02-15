@@ -1,17 +1,21 @@
 import React, { useState } from 'react'
-import { exportSVG, exportCSSClipPath, exportPNG } from '../engine'
+import { exportSVG, exportCSSClipPath, exportPNG, exportSelectedSVG, exportSelectedPNG } from '../engine'
+import { useStore } from '../store'
 
 export default function ExportPanel() {
   const [activeTab, setActiveTab] = useState<'svg' | 'css' | 'png'>('svg')
   const [output, setOutput] = useState('')
   const [copied, setCopied] = useState(false)
+  const [selectedOnly, setSelectedOnly] = useState(false)
+  const selectedShapeIds = useStore((s) => s.selectedShapeIds)
 
   const generate = (tab: 'svg' | 'css' | 'png') => {
     setActiveTab(tab)
     setCopied(false)
+    const useSelected = selectedOnly && selectedShapeIds.length > 0
     switch (tab) {
       case 'svg':
-        setOutput(exportSVG())
+        setOutput(useSelected ? exportSelectedSVG(selectedShapeIds) : exportSVG())
         break
       case 'css': {
         const clipPath = exportCSSClipPath()
@@ -28,8 +32,9 @@ export default function ExportPanel() {
         setOutput(css)
         break
       }
-      case 'png':
-        exportPNG(2).then((blob) => {
+      case 'png': {
+        const pngPromise = useSelected ? exportSelectedPNG(selectedShapeIds, 2) : exportPNG(2)
+        pngPromise.then((blob) => {
           const url = URL.createObjectURL(blob)
           const a = document.createElement('a')
           a.href = url
@@ -39,6 +44,7 @@ export default function ExportPanel() {
           setOutput('PNG downloaded!')
         })
         return
+      }
     }
   }
 
@@ -49,7 +55,8 @@ export default function ExportPanel() {
   }
 
   const downloadSVG = () => {
-    const svg = exportSVG()
+    const useSelected = selectedOnly && selectedShapeIds.length > 0
+    const svg = useSelected ? exportSelectedSVG(selectedShapeIds) : exportSVG()
     const blob = new Blob([svg], { type: 'image/svg+xml' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -61,20 +68,32 @@ export default function ExportPanel() {
 
   return (
     <div style={styles.panel}>
-      <div style={styles.tabs}>
-        {(['svg', 'css', 'png'] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => generate(tab)}
-            style={{
-              ...styles.tab,
-              background: activeTab === tab ? '#3a3a6e' : 'transparent',
-              color: activeTab === tab ? '#fff' : '#8a8aae',
-            }}
-          >
-            {tab.toUpperCase()}
-          </button>
-        ))}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <div style={styles.tabs}>
+          {(['svg', 'css', 'png'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => generate(tab)}
+              style={{
+                ...styles.tab,
+                background: activeTab === tab ? '#3a3a6e' : 'transparent',
+                color: activeTab === tab ? '#fff' : '#8a8aae',
+              }}
+            >
+              {tab.toUpperCase()}
+            </button>
+          ))}
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: selectedShapeIds.length > 0 ? '#8a8aae' : '#4a4a5e', cursor: selectedShapeIds.length > 0 ? 'pointer' : 'default' }}>
+          <input
+            type="checkbox"
+            checked={selectedOnly}
+            onChange={(e) => setSelectedOnly(e.target.checked)}
+            disabled={selectedShapeIds.length === 0}
+            style={{ accentColor: '#6a6aff' }}
+          />
+          Selected only ({selectedShapeIds.length})
+        </label>
       </div>
 
       {output && (
@@ -102,7 +121,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderTop: '1px solid #2a2a3e',
     padding: 8,
   },
-  tabs: { display: 'flex', gap: 4, marginBottom: 8 },
+  tabs: { display: 'flex', gap: 4 },
   tab: {
     padding: '6px 16px',
     borderRadius: 6,

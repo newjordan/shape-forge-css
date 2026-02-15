@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useStore } from '../store'
 import type { ToolType, BooleanOp } from '../types'
 import { getProject, getDrawLayer, batchBooleanOp, findProximityClusters, nextId } from '../engine'
@@ -12,7 +12,12 @@ const tools: { id: ToolType; label: string; icon: string; shortcut: string }[] =
   { id: 'roundedRect', label: 'Rounded Rect', icon: '▢', shortcut: '' },
   { id: 'polygon', label: 'Polygon', icon: '⬡', shortcut: '' },
   { id: 'star', label: 'Star', icon: '★', shortcut: '' },
+  { id: 'line', label: 'Line', icon: '╲', shortcut: 'L' },
+  { id: 'freehand', label: 'Freehand', icon: '〰', shortcut: 'N' },
   { id: 'pen', label: 'Pen Tool', icon: '✒', shortcut: 'P' },
+  { id: 'text', label: 'Text', icon: 'T', shortcut: 'T' },
+  { id: 'eyedropper', label: 'Eyedropper', icon: '💧', shortcut: 'I' },
+  { id: 'measure', label: 'Measure', icon: '📏', shortcut: 'M' },
 ]
 
 const boolOps: { id: BooleanOp; label: string; icon: string }[] = [
@@ -21,6 +26,138 @@ const boolOps: { id: BooleanOp; label: string; icon: string }[] = [
   { id: 'intersect', label: 'Intersect', icon: '⊗' },
   { id: 'exclude', label: 'Exclude', icon: '⊘' },
 ]
+
+/** Individual layer row with visibility, lock, rename, delete, and drag-to-reorder */
+function LayerItem({ shape, isSelected, selectedShapeIds, dragOverId, dragPosition, onDragStart: onDragStartProp, onDragOver: onDragOverProp, onDrop: onDropProp, onDragEnd: onDragEndProp }: {
+  shape: ShapeItem; isSelected: boolean; selectedShapeIds: string[]
+  dragOverId: string | null; dragPosition: 'above' | 'below' | null
+  onDragStart: (id: string) => void; onDragOver: (id: string, pos: 'above' | 'below') => void
+  onDrop: () => void; onDragEnd: () => void
+}) {
+  const [renaming, setRenaming] = useState(false)
+  const [renameVal, setRenameVal] = useState(shape.name)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (renaming && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [renaming])
+
+  const commitRename = () => {
+    const trimmed = renameVal.trim()
+    if (trimmed && trimmed !== shape.name) {
+      useStore.getState().updateShape(shape.id, { name: trimmed })
+    }
+    setRenaming(false)
+  }
+
+  const toggleVisibility = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const newVis = !shape.visible
+    useStore.getState().updateShape(shape.id, { visible: newVis })
+    const drawLayer = getDrawLayer()
+    const item = drawLayer.children.find((c) => c.data?.shapeId === shape.id)
+    if (item) item.visible = newVis
+  }
+
+  const toggleLock = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    useStore.getState().updateShape(shape.id, { locked: !shape.locked })
+  }
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const drawLayer = getDrawLayer()
+    const item = drawLayer.children.find((c) => c.data?.shapeId === shape.id)
+    if (item) item.remove()
+    useStore.getState().removeShape(shape.id)
+    const project = getProject()
+    useStore.getState().pushHistory({
+      json: project.exportJSON(),
+      shapes: useStore.getState().shapes,
+      description: `Delete ${shape.name}`,
+    })
+  }
+
+  const handleClick = () => {
+    const store = useStore.getState()
+    const current = store.selectedShapeIds
+    if (current.includes(shape.id)) {
+      store.setSelectedShapeIds(current.filter((id) => id !== shape.id))
+    } else {
+      store.setSelectedShapeIds([...current, shape.id])
+    }
+  }
+
+  const isDropTarget = dragOverId === shape.id
+  const dropBorderStyle: React.CSSProperties = isDropTarget ? {
+    borderTop: dragPosition === 'above' ? '2px solid #6a6aff' : undefined,
+    borderBottom: dragPosition === 'below' ? '2px solid #6a6aff' : undefined,
+  } : {}
+
+  return (
+    <div
+      draggable={!renaming}
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move'
+        onDragStartProp(shape.id)
+      }}
+      onDragOver={(e) => {
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        const rect = e.currentTarget.getBoundingClientRect()
+        const midY = rect.top + rect.height / 2
+        onDragOverProp(shape.id, e.clientY < midY ? 'above' : 'below')
+      }}
+      onDrop={(e) => { e.preventDefault(); onDropProp() }}
+      onDragEnd={onDragEndProp}
+      style={{
+        ...styles.layerItem,
+        background: isSelected ? '#2a2a5e' : 'transparent',
+        borderColor: isSelected ? '#4a4aff' : 'transparent',
+        opacity: shape.visible ? 1 : 0.45,
+        ...dropBorderStyle,
+      }}
+      onClick={handleClick}
+    >
+      {/* Visibility eye */}
+      <button onClick={toggleVisibility} style={styles.layerIconBtn} title={shape.visible ? 'Hide' : 'Show'}>
+        {shape.visible ? '👁' : '👁‍🗨'}
+      </button>
+      {/* Lock */}
+      <button onClick={toggleLock} style={{ ...styles.layerIconBtn, color: shape.locked ? '#ff8844' : '#5a5a7e' }} title={shape.locked ? 'Unlock' : 'Lock'}>
+        {shape.locked ? '🔒' : '🔓'}
+      </button>
+      {/* Color swatch */}
+      <span style={{ width: 10, height: 10, borderRadius: 2, background: shape.style.fillColor || 'transparent', border: shape.style.fillColor ? 'none' : '1px solid #5a5a7e', display: 'inline-block', marginRight: 4, flexShrink: 0 }} />
+      {/* Name (double-click to rename) */}
+      {renaming ? (
+        <input
+          ref={inputRef}
+          value={renameVal}
+          onChange={(e) => setRenameVal(e.target.value)}
+          onBlur={commitRename}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commitRename()
+            if (e.key === 'Escape') { setRenameVal(shape.name); setRenaming(false) }
+          }}
+          style={styles.renameInput}
+          onClick={(e) => e.stopPropagation()}
+        />
+      ) : (
+        <span style={styles.layerName} onDoubleClick={(e) => { e.stopPropagation(); setRenameVal(shape.name); setRenaming(true) }}>
+          {shape.name}
+        </span>
+      )}
+      {/* Delete button */}
+      <button onClick={handleDelete} style={{ ...styles.layerIconBtn, marginLeft: 'auto', color: '#ff5555', fontSize: 11 }} title="Delete">
+        ✕
+      </button>
+    </div>
+  )
+}
 
 interface ToolbarProps {
   onOpenTrace: () => void
@@ -33,6 +170,35 @@ export default function Toolbar({ onOpenTrace }: ToolbarProps) {
   const shapes = useStore((s) => s.shapes)
   const currentStyle = useStore((s) => s.currentStyle)
   const [proximityThreshold, setProximityThreshold] = useState(30)
+
+  // Drag-to-reorder state
+  const [dragSourceId, setDragSourceId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
+  const [dragPosition, setDragPosition] = useState<'above' | 'below' | null>(null)
+
+  const handleLayerDragStart = (id: string) => { setDragSourceId(id) }
+  const handleLayerDragOver = (id: string, pos: 'above' | 'below') => { setDragOverId(id); setDragPosition(pos) }
+  const handleLayerDragEnd = () => { setDragSourceId(null); setDragOverId(null); setDragPosition(null) }
+  const handleLayerDrop = () => {
+    if (dragSourceId && dragOverId && dragSourceId !== dragOverId) {
+      const store = useStore.getState()
+      const targetIdx = store.shapes.findIndex((s) => s.id === dragOverId)
+      if (targetIdx >= 0) {
+        const newIdx = dragPosition === 'below' ? targetIdx + 1 : targetIdx
+        store.moveShapeToIndex(dragSourceId, newIdx)
+        // Sync Paper.js layer order
+        const drawLayer = getDrawLayer()
+        const updatedShapes = useStore.getState().shapes
+        for (const shape of updatedShapes) {
+          const item = drawLayer.children.find((c) => c.data?.shapeId === shape.id)
+          if (item) drawLayer.addChild(item)
+        }
+        const project = getProject()
+        store.pushHistory({ json: project.exportJSON(), shapes: useStore.getState().shapes, description: 'Reorder layers' })
+      }
+    }
+    handleLayerDragEnd()
+  }
 
   const canBoolean = selectedShapeIds.length >= 2
 
@@ -234,37 +400,20 @@ export default function Toolbar({ onOpenTrace }: ToolbarProps) {
           </div>
         )}
         <div style={styles.layerList}>
-          {shapes.map((s) => {
-            const isSelected = selectedShapeIds.includes(s.id)
-            return (
-              <div
-                key={s.id}
-                style={{
-                  ...styles.layerItem,
-                  background: isSelected ? '#2a2a5e' : 'transparent',
-                  borderColor: isSelected ? '#4a4aff' : 'transparent',
-                }}
-              >
-                <label style={styles.checkboxLabel}>
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => {
-                      const store = useStore.getState()
-                      if (isSelected) {
-                        store.setSelectedShapeIds(selectedShapeIds.filter((id) => id !== s.id))
-                      } else {
-                        store.setSelectedShapeIds([...selectedShapeIds, s.id])
-                      }
-                    }}
-                    style={styles.checkbox}
-                  />
-                  <span style={{ width: 10, height: 10, borderRadius: 2, background: s.style.fillColor || 'transparent', border: s.style.fillColor ? 'none' : '1px solid #5a5a7e', display: 'inline-block', marginRight: 6, flexShrink: 0 }} />
-                  <span style={styles.layerName}>{s.name}</span>
-                </label>
-              </div>
-            )
-          })}
+          {shapes.map((s) => (
+            <LayerItem
+              key={s.id}
+              shape={s}
+              isSelected={selectedShapeIds.includes(s.id)}
+              selectedShapeIds={selectedShapeIds}
+              dragOverId={dragOverId}
+              dragPosition={dragPosition}
+              onDragStart={handleLayerDragStart}
+              onDragOver={handleLayerDragOver}
+              onDrop={handleLayerDrop}
+              onDragEnd={handleLayerDragEnd}
+            />
+          ))}
         </div>
       </div>
     </div>
@@ -354,6 +503,27 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     gap: 4,
     transition: 'all 0.15s',
+  },
+  layerIconBtn: {
+    background: 'none',
+    border: 'none',
+    padding: '0 2px',
+    fontSize: 12,
+    cursor: 'pointer',
+    color: '#5a5a7e',
+    lineHeight: 1,
+    flexShrink: 0,
+  },
+  renameInput: {
+    background: '#1a1a2e',
+    border: '1px solid #6a6aff',
+    borderRadius: 3,
+    color: '#e0e0e0',
+    padding: '1px 4px',
+    fontSize: 11,
+    outline: 'none',
+    flex: 1,
+    minWidth: 0,
   },
 }
 

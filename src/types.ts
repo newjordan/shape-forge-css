@@ -6,6 +6,11 @@ export type ToolType =
   | 'polygon'
   | 'star'
   | 'pen'
+  | 'line'
+  | 'freehand'
+  | 'text'
+  | 'eyedropper'
+  | 'measure'
 
 export type BooleanOp = 'unite' | 'subtract' | 'intersect' | 'exclude'
 
@@ -14,6 +19,25 @@ export interface ShapeStyle {
   strokeColor: string
   strokeWidth: number
   opacity: number
+  dashArray?: number[] | null
+  strokeCap?: 'butt' | 'round' | 'square'
+  strokeJoin?: 'miter' | 'round' | 'bevel'
+  shadowColor?: string | null
+  shadowBlur?: number
+  shadowOffsetX?: number
+  shadowOffsetY?: number
+  arrowStart?: boolean
+  arrowEnd?: boolean
+}
+
+export type PrimitiveType = 'rectangle' | 'circle' | 'roundedRect' | 'polygon' | 'star' | 'pen'
+
+export interface PrimitiveParams {
+  cornerRadius?: number
+  sides?: number
+  points?: number
+  innerRadius?: number
+  outerRadius?: number
 }
 
 export interface ShapeItem {
@@ -23,6 +47,16 @@ export interface ShapeItem {
   style: ShapeStyle
   visible: boolean
   locked: boolean
+  primitiveType?: PrimitiveType
+  primitiveParams?: PrimitiveParams
+  /** If this shape is a group, contains the IDs of its child shapes (for reference/serialization) */
+  isGroup?: boolean
+  /** Text content for text shapes */
+  textContent?: string
+  /** Font size for text shapes */
+  fontSize?: number
+  /** Font family for text shapes */
+  fontFamily?: string
 }
 
 export interface HistoryEntry {

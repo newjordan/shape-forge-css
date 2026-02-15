@@ -2,6 +2,11 @@ import { create } from 'zustand'
 import type { ToolType, ShapeItem, ShapeStyle, HistoryEntry } from './types'
 import { DEFAULT_STYLE } from './types'
 
+interface ClipboardEntry {
+  shapes: ShapeItem[]
+  paperJson: string // serialized Paper.js items
+}
+
 interface AppState {
   // Tool
   activeTool: ToolType
@@ -15,6 +20,20 @@ interface AppState {
   removeShape: (id: string) => void
   updateShape: (id: string, updates: Partial<ShapeItem>) => void
   setSelectedShapeIds: (ids: string[]) => void
+
+  // Layer ordering
+  bringForward: (id: string) => void
+  sendBackward: (id: string) => void
+  bringToFront: (id: string) => void
+  sendToBack: (id: string) => void
+  moveShapeToIndex: (id: string, newIndex: number) => void
+
+  // Clipboard
+  clipboard: ClipboardEntry | null
+  setClipboard: (entry: ClipboardEntry | null) => void
+  pasteCount: number
+  incrementPasteCount: () => void
+  resetPasteCount: () => void
 
   // Style
   currentStyle: ShapeStyle
@@ -39,6 +58,45 @@ interface AppState {
   enterNodeEdit: (shapeId: string) => void
   exitNodeEdit: () => void
 
+  // Canvas navigation state
+  isPanning: boolean
+  setIsPanning: (v: boolean) => void
+  spaceHeld: boolean
+  setSpaceHeld: (v: boolean) => void
+
+  // Zoom level (for UI display)
+  zoomLevel: number
+  setZoomLevel: (z: number) => void
+
+  // Canvas background color
+  canvasBgColor: string
+  setCanvasBgColor: (c: string) => void
+
+  // Cursor position (for status bar)
+  cursorX: number
+  cursorY: number
+  setCursorPosition: (x: number, y: number) => void
+
+  // Checkerboard transparency background
+  showCheckerboard: boolean
+  setShowCheckerboard: (v: boolean) => void
+
+  // Snap-to-grid & smart guides
+  snapToGrid: boolean
+  setSnapToGrid: (v: boolean) => void
+  gridSize: number
+  setGridSize: (v: number) => void
+  showSmartGuides: boolean
+  setShowSmartGuides: (v: boolean) => void
+
+  // Recent colors palette
+  recentColors: string[]
+  addRecentColor: (color: string) => void
+
+  // Shortcuts help overlay
+  showShortcutsHelp: boolean
+  setShowShortcutsHelp: (v: boolean) => void
+
   // Restore callback (set by Canvas so App can trigger undo/redo with Paper.js restore)
   _restoreCallback: ((entry: HistoryEntry) => void) | null
   setRestoreCallback: (cb: ((entry: HistoryEntry) => void) | null) => void
@@ -62,6 +120,54 @@ export const useStore = create<AppState>((set, get) => ({
     shapes: s.shapes.map((sh) => (sh.id === id ? { ...sh, ...updates } : sh)),
   })),
   setSelectedShapeIds: (ids) => set({ selectedShapeIds: ids }),
+
+  // Layer ordering
+  bringForward: (id) => set((s) => {
+    const idx = s.shapes.findIndex((sh) => sh.id === id)
+    if (idx < 0 || idx >= s.shapes.length - 1) return s
+    const arr = [...s.shapes]
+    ;[arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]]
+    return { shapes: arr }
+  }),
+  sendBackward: (id) => set((s) => {
+    const idx = s.shapes.findIndex((sh) => sh.id === id)
+    if (idx <= 0) return s
+    const arr = [...s.shapes]
+    ;[arr[idx], arr[idx - 1]] = [arr[idx - 1], arr[idx]]
+    return { shapes: arr }
+  }),
+  bringToFront: (id) => set((s) => {
+    const idx = s.shapes.findIndex((sh) => sh.id === id)
+    if (idx < 0 || idx >= s.shapes.length - 1) return s
+    const arr = [...s.shapes]
+    const [item] = arr.splice(idx, 1)
+    arr.push(item)
+    return { shapes: arr }
+  }),
+  sendToBack: (id) => set((s) => {
+    const idx = s.shapes.findIndex((sh) => sh.id === id)
+    if (idx <= 0) return s
+    const arr = [...s.shapes]
+    const [item] = arr.splice(idx, 1)
+    arr.unshift(item)
+    return { shapes: arr }
+  }),
+  moveShapeToIndex: (id, newIndex) => set((s) => {
+    const idx = s.shapes.findIndex((sh) => sh.id === id)
+    if (idx < 0 || idx === newIndex) return s
+    const arr = [...s.shapes]
+    const [item] = arr.splice(idx, 1)
+    const clampedIndex = Math.max(0, Math.min(newIndex, arr.length))
+    arr.splice(clampedIndex, 0, item)
+    return { shapes: arr }
+  }),
+
+  // Clipboard
+  clipboard: null,
+  setClipboard: (entry) => set({ clipboard: entry, pasteCount: 0 }),
+  pasteCount: 0,
+  incrementPasteCount: () => set((s) => ({ pasteCount: s.pasteCount + 1 })),
+  resetPasteCount: () => set({ pasteCount: 0 }),
 
   currentStyle: { ...DEFAULT_STYLE },
   setCurrentStyle: (style) => set((s) => ({
@@ -100,6 +206,49 @@ export const useStore = create<AppState>((set, get) => ({
   editingShapeId: null,
   enterNodeEdit: (shapeId) => set({ editMode: 'node', editingShapeId: shapeId, selectedShapeIds: [shapeId] }),
   exitNodeEdit: () => set({ editMode: 'shape', editingShapeId: null }),
+
+  // Canvas navigation state
+  isPanning: false,
+  setIsPanning: (v) => set({ isPanning: v }),
+  spaceHeld: false,
+  setSpaceHeld: (v) => set({ spaceHeld: v }),
+
+  // Zoom level
+  zoomLevel: 1,
+  setZoomLevel: (z) => set({ zoomLevel: z }),
+
+  // Canvas background color
+  canvasBgColor: '#0d0d1a',
+  setCanvasBgColor: (c) => set({ canvasBgColor: c }),
+
+  // Cursor position
+  cursorX: 0,
+  cursorY: 0,
+  setCursorPosition: (x, y) => set({ cursorX: x, cursorY: y }),
+
+  // Checkerboard transparency background
+  showCheckerboard: false,
+  setShowCheckerboard: (v) => set({ showCheckerboard: v }),
+
+  // Snap-to-grid & smart guides
+  snapToGrid: false,
+  setSnapToGrid: (v) => set({ snapToGrid: v }),
+  gridSize: 10,
+  setGridSize: (v) => set({ gridSize: v }),
+  showSmartGuides: true,
+  setShowSmartGuides: (v) => set({ showSmartGuides: v }),
+
+  // Recent colors palette
+  recentColors: [],
+  addRecentColor: (color) => set((s) => {
+    const lc = color.toLowerCase()
+    const filtered = s.recentColors.filter((c) => c.toLowerCase() !== lc)
+    return { recentColors: [color, ...filtered].slice(0, 12) }
+  }),
+
+  // Shortcuts help
+  showShortcutsHelp: false,
+  setShowShortcutsHelp: (v) => set({ showShortcutsHelp: v }),
 
   _restoreCallback: null,
   setRestoreCallback: (cb) => set({ _restoreCallback: cb }),

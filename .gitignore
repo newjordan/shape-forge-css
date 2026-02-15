@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Media (keep repo lean)
+docs/*.mp4
+docs/*.mov
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
