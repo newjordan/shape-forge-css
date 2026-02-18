@@ -2,59 +2,139 @@
 
 A browser-based vector graphics editor built with Paper.js, React, and TypeScript. Create, edit, and export vector shapes — including an advanced PNG-to-vector auto-tracer powered by the marching squares algorithm.
 
+<video src="docs/shape_forge.mp4" controls width="100%"></video>
+
+![Shape Forge Export Example](docs/shape-forge-export.png)
+
+![Shape Forge Screenshot](docs/screenshot.png)
+
 ## Quick Examples
 
-### 1) Trace a PNG into editable vector paths
-1. Open **Image Trace**
-2. Pick a channel (**Alpha**, **Luminance**, or **RGB**)
+### 1) Trace an image into editable vector paths
+1. Click **Import & Trace PNG** (supports PNG, JPEG, WebP, GIF)
+2. Pick a channel (**Alpha**, **Luminance**, **Red**, **Green**, or **Blue**)
 3. Tune the sliders (Threshold, Blur, Smoothing, Min Area, Offset, Corner Angle)
-4. Apply to create editable vector paths
+4. Toggle individual contours on/off, then **Apply** to create editable vector paths
 
 ### 2) Build shapes with boolean operations
-1. Draw a few primitives (Rectangle/Circle/Polygon/Star)
-2. Select multiple shapes
-3. Use **Union / Subtract / Intersect / Exclude** to combine them
+1. Draw primitives (Rectangle / Circle / Polygon / Star)
+2. Select 2+ shapes
+3. Use **Union / Subtract / Intersect / Exclude** to combine them, or **Merge Nearby** to auto-cluster by proximity
 
 ### 3) Export for the web
-1. Export to **SVG** for clean vector output
-2. Or export to **PNG** for raster output at a chosen resolution
-3. Use the **CSS clip-path** example below to drop exported paths into web UI
+1. Export **SVG** or **PNG** for the full canvas, or check **Selected only** to export just your selection
+2. Use the **CSS** tab to copy a ready-to-paste `clip-path` rule
 
 ## Features
 
 ### Drawing Tools
-- **Rectangle, Circle, Rounded Rectangle, Polygon, Star** — click-and-drag shape creation
-- **Pen Tool** — node-level editing with bezier curve manipulation
-- **Selection Tool** — click to select, drag to move, multi-select support
+- **Rectangle (R), Circle (O), Rounded Rect, Polygon, Star** — click-and-drag creation; Shift to constrain to square/circle
+- **Line (L)** — straight line segments with optional arrowheads
+- **Freehand (N)** — free-draw smooth paths with round cap/join
+- **Pen Tool (P)** — click to add anchor points, drag to pull bezier handles; click near first point to close
+- **Text (T)** — click anywhere to place editable text; control content, font size, and font family in the Properties Panel
+- **Eyedropper (I)** — click any shape to sample its fill/stroke into the current style; auto-returns to Select
+- **Measure Distance (M)** — click two points to display pixel distance with an auto-clearing overlay
+- **Selection (V)** — click to select, Shift-click to multi-select, drag empty canvas for marquee/rubber-band selection
+
+### Node Edit Mode
+- **Double-click** any path or compound path to enter node edit mode
+- **Drag segment points** (squares = corner nodes, circles = smooth nodes)
+- **Drag bezier handles** (orange) to reshape curves; handles mirror automatically unless **Alt** is held to break symmetry
+- **Click on a path's stroke** to insert a new node at that exact location
+- **Escape** to exit node edit and return to shape mode
 
 ### Boolean Operations
-- **Union, Subtract, Intersect, Exclude** — combine shapes with boolean ops
-- **Merge Nearby** — auto-merge overlapping shapes within a configurable radius
+- **Union, Subtract, Intersect, Exclude** — applied to all selected shapes at once
+- **Merge Nearby** — auto-detects proximity clusters with an adjustable gap slider (0–150 px) and merges each cluster with your chosen boolean op
+
+### Transform & Selection
+- **8-point resize handles** — drag any corner or edge handle; **Shift** to constrain proportions
+- **Rotation handle** — circle above the selection bounding box; **Shift** snaps to 15° increments
+- **Alt+Drag** — duplicates all selected shapes and moves the copies in one gesture
+- **Flip Horizontal / Flip Vertical** — one-click mirror transform
+- **Simplify Path** — reduce node count while preserving shape outline
+- **Lock/Unlock aspect ratio** — toggle before entering W/H values in the Properties Panel
+- **Nudge** — Arrow keys move 1 px; Shift+Arrow moves 10 px
+- **Bring Forward / Send Backward / Bring to Front / Send to Back** (Ctrl+] / Ctrl+[ and context menu)
+
+### Alignment & Distribution
+- **Align**: Left, Center H, Right, Top, Center V, Bottom — requires 2+ shapes selected
+- **Distribute**: Horizontally or Vertically — requires 3+ shapes selected (evenly spaces centers)
+
+### Groups
+- **Group (Ctrl+G)** — combine selected shapes into a group
+- **Ungroup (Ctrl+Shift+G)** — dissolve group back into individual shapes
+
+### Primitive Shape Live Editing
+- **Rounded Rect** — corner radius slider (0–200 px)
+- **Polygon** — side count slider (3–100 sides)
+- **Star** — points slider, inner radius, and outer radius sliders
+
+### Text
+- Click-to-place text labels on the canvas
+- Edit content, font size (8–500 pt), and font family (11 choices including Arial, Georgia, Courier New, monospace) from the Properties Panel
 
 ### PNG Auto-Tracer
-- **Marching squares contour extraction** with saddle point disambiguation
-- **Multi-channel support** — trace from Alpha, Luminance, Red, Green, or Blue
+- **Marching squares contour extraction** with saddle-point disambiguation
+- **Multi-channel** — trace from Alpha, Luminance, Red, Green, or Blue
+- **Accepts** PNG, JPEG, WebP, and GIF
 - **Gaussian blur preprocessing** for noise reduction
 - **Live preview modal** with checkerboard background and colored contour overlay
-- **Per-contour controls** — enable/disable, delete individual contours
+- **Per-contour controls** — enable/disable or delete individual contours
 - **6 parameter sliders** — Threshold, Blur, Smoothing, Min Area, Offset, Corner Angle
-- **Negative space tracing** via invert toggle
-- **Winding order detection** — automatic outer contour vs hole classification
+- **Invert toggle** for negative-space tracing
+- **Winding order detection** — automatic outer-contour vs hole classification
+
+### Style & Appearance
+- **Fill** — color picker with one-click No Fill / restore fill toggle
+- **Stroke** — color, width (0–20), and per-cap/join controls (Butt/Round/Square, Miter/Round/Bevel)
+- **Dash patterns** — Solid, Dashed, Dotted, Dash-dot
+- **Arrow markers** — enable arrowheads at Start and/or End of any path
+- **Opacity** — per-shape opacity slider (0–1)
+- **Drop shadow** — toggle shadow with color, blur (0–50), and X/Y offset (±30) controls
+- **Style presets** — 9 one-click presets: Neon Blue, Neon Pink, Hologram, Dark Metal, Liquid Gold, Glass, Ember, Void, Outline
+- **Recent colors palette** — last 12 used colors; left-click applies to fill, right-click applies to stroke
 
 ### Canvas & Navigation
-- **Infinite canvas** with pan (middle-click or Space+drag) and zoom (scroll wheel)
-- **Snap-to-grid** with configurable grid size
-- **F key** — zoom-to-fit on selection (or all shapes)
-- **Undo/Redo** with full history stack
+- **Infinite canvas** — pan with Space+drag or middle-click drag; zoom to cursor with scroll wheel
+- **Rulers** — horizontal and vertical pixel rulers with zoom-adaptive major/minor tick labels
+- **Smart alignment guides** — magenta snap lines appear when dragging shapes near edges or centers of others
+- **Snap-to-grid** — configurable grid size with dot overlay
+- **Canvas background color** — editable color picker in the Properties Panel
+- **Checkerboard transparency** — toggle CSS checkerboard background to check opacity
+- **Marquee selection** — drag on empty canvas to rubber-band select multiple shapes
+- **DPI-aware rendering** — full `devicePixelRatio` support for sharp display on HiDPI/Retina screens
+- **Status bar** — live cursor X/Y, shape count / selection info, and zoom % at the bottom of the canvas
+- **F** — zoom to fit selection (or all shapes if nothing selected)
+- **Ctrl+0** — fit canvas to view; **Ctrl+1** — zoom to 100%; **Ctrl+=** / **Ctrl+-** — zoom in/out; **Home** — reset to 0,0 @ 100%
 
 ### Export
-- **SVG export** — clean vector output
-- **PNG export** — rasterized output at configurable resolution
+- **SVG** — clean vector output; copy to clipboard or download as `.svg`
+- **PNG** — rasterised output at 2× resolution; auto-downloads as `.png`
+- **CSS clip-path** — ready-to-paste `clip-path: path(…)` rule
+- **Selected only** checkbox — export just the currently selected shapes for any format
 
-### Properties Panel
-- **Transform controls** — position, size, rotation
-- **Fill & Stroke** — color pickers, stroke width, opacity
-- **Layer management** — visibility, lock, reorder, rename
+### Clipboard & History
+- **Copy / Cut / Paste** (Ctrl+C / Ctrl+X / Ctrl+V) — internal clipboard with offset-on-repeated-paste
+- **Duplicate** (Ctrl+D) — in-place copy offset by 20 px
+- **SVG paste** — paste raw SVG markup from clipboard and it imports directly onto the canvas, centered in view
+- **Undo / Redo** — 50-step history stack (Ctrl+Z / Ctrl+Shift+Z)
+
+### Layers Panel
+- **Visibility toggle** (👁) and **Lock toggle** (🔒) per layer
+- **Color swatch** — shows the layer's current fill at a glance
+- **Drag-to-reorder** — drag any layer row above or below another to change stacking order
+- **Double-click to rename** — inline rename with Enter to confirm / Escape to cancel
+- **Delete** button per layer
+
+### Right-click Context Menu
+- Cut, Copy, Paste, Duplicate, Delete, Select All
+- Bring Forward, Send Backward, Bring to Front, Send to Back
+- Group / Ungroup
+
+### Keyboard Shortcuts Help
+- Press **?** anywhere to open a full keyboard shortcuts overlay covering all tools, edit actions, transforms, canvas navigation, and drawing modifiers
 
 ## Getting Started
 
