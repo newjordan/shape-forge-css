@@ -2,7 +2,7 @@
 
 A browser-based vector graphics editor built with Paper.js, React, and TypeScript. Create, edit, and export vector shapes — including an advanced PNG-to-vector auto-tracer powered by the marching squares algorithm.
 
-<video src="docs/shape_forge.mp4" controls width="100%"></video>
+![Shape Forge Demo](docs/demo.gif)
 
 ![Shape Forge Export Example](docs/shape-forge-export.png)
 
