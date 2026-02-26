@@ -108,6 +108,7 @@ export default function Canvas() {
   const enterNodeEdit = useStore((s) => s.enterNodeEdit)
   const exitNodeEdit = useStore((s) => s.exitNodeEdit)
   const spaceHeld = useStore((s) => s.spaceHeld)
+  const zoomLevel = useStore((s) => s.zoomLevel)
   const canvasBgColor = useStore((s) => s.canvasBgColor)
   const showCheckerboard = useStore((s) => s.showCheckerboard)
 
@@ -451,6 +452,8 @@ export default function Canvas() {
     if (!scope) return
     scope.activate()
 
+    const zoom = scope.view.zoom ?? 1
+
     // Remove old node overlay
     if (nodeOverlayRef.current) {
       nodeOverlayRef.current.remove()
@@ -476,10 +479,10 @@ export default function Canvas() {
     for (const p of paths) {
       const outline = p.clone({ insert: false }) as paper.Path
       outline.strokeColor = new paper.Color('#6a6aff')
-      outline.strokeWidth = 1
+      outline.strokeWidth = 1 / zoom
       outline.fillColor = null as any
       outline.opacity = 0.5
-      outline.dashArray = [6, 3]
+      outline.dashArray = [6 / zoom, 3 / zoom]
       outline.data = { isOverlay: true }
       group.addChild(outline)
     }
@@ -501,16 +504,16 @@ export default function Canvas() {
           const line = new paper.Path.Line({
             from: pt, to: hPt,
             strokeColor: new paper.Color(isSelected ? '#ffaa00' : '#ff6600'),
-            strokeWidth: 1,
-            dashArray: [3, 3],
+            strokeWidth: 1 / zoom,
+            dashArray: [3 / zoom, 3 / zoom],
           })
           line.data = { isOverlay: true }
           group.addChild(line)
           const dot = new paper.Path.Circle({
-            center: hPt, radius: 4,
+            center: hPt, radius: 4 / zoom,
             fillColor: new paper.Color(isSelected ? '#ffaa00' : '#ff6600'),
             strokeColor: new paper.Color('#ffffff'),
-            strokeWidth: 0.5,
+            strokeWidth: 0.5 / zoom,
           })
           dot.data = { isOverlay: true, nodeType: 'handleIn', segIndex: idx, pathIndex: pi }
           group.addChild(dot)
@@ -521,30 +524,30 @@ export default function Canvas() {
           const line = new paper.Path.Line({
             from: pt, to: hPt,
             strokeColor: new paper.Color(isSelected ? '#ffaa00' : '#ff6600'),
-            strokeWidth: 1,
-            dashArray: [3, 3],
+            strokeWidth: 1 / zoom,
+            dashArray: [3 / zoom, 3 / zoom],
           })
           line.data = { isOverlay: true }
           group.addChild(line)
           const dot = new paper.Path.Circle({
-            center: hPt, radius: 4,
+            center: hPt, radius: 4 / zoom,
             fillColor: new paper.Color(isSelected ? '#ffaa00' : '#ff6600'),
             strokeColor: new paper.Color('#ffffff'),
-            strokeWidth: 0.5,
+            strokeWidth: 0.5 / zoom,
           })
           dot.data = { isOverlay: true, nodeType: 'handleOut', segIndex: idx, pathIndex: pi }
           group.addChild(dot)
         }
 
         // Draw segment point — square for corner, circle for smooth, highlighted if selected
-        const nodeSize = isSelected ? 6 : 4
+        const nodeSize = (isSelected ? 6 : 4) / zoom
         if (isSmooth) {
           const circle = new paper.Path.Circle({
             center: pt,
             radius: nodeSize,
             fillColor: new paper.Color(isSelected ? '#ffcc00' : '#ffffff'),
             strokeColor: new paper.Color(isSelected ? '#ff8800' : '#6a6aff'),
-            strokeWidth: isSelected ? 2 : 1.5,
+            strokeWidth: (isSelected ? 2 : 1.5) / zoom,
           })
           circle.data = { isOverlay: true, nodeType: 'point', segIndex: idx, pathIndex: pi }
           group.addChild(circle)
@@ -554,7 +557,7 @@ export default function Canvas() {
             size: new paper.Size(nodeSize * 2, nodeSize * 2),
             fillColor: new paper.Color(isSelected ? '#ffcc00' : '#ffffff'),
             strokeColor: new paper.Color(isSelected ? '#ff8800' : '#6a6aff'),
-            strokeWidth: isSelected ? 2 : 1.5,
+            strokeWidth: (isSelected ? 2 : 1.5) / zoom,
           })
           square.data = { isOverlay: true, nodeType: 'point', segIndex: idx, pathIndex: pi }
           group.addChild(square)
@@ -588,9 +591,11 @@ export default function Canvas() {
 
     // Node edit mode: check if clicking a node handle, path edge, or outside
     if (editModeRef.current === 'node' && tool === 'select') {
+	    const zoom = scope.view.zoom ?? 1
       const overlay = nodeOverlayRef.current
       if (overlay) {
-        const hitResult = overlay.hitTest(viewPoint, { fill: true, tolerance: 10 })
+	      const hitTol = 10 / zoom
+	      const hitResult = overlay.hitTest(viewPoint, { fill: true, tolerance: hitTol })
         if (hitResult?.item?.data?.nodeType) {
           const { nodeType, segIndex } = hitResult.item.data
           // Select this node
@@ -610,7 +615,8 @@ export default function Canvas() {
       if (sid) {
         const item = drawLayer.children.find((c) => c.data?.shapeId === sid)
         if (item && (item instanceof paper.Path || item instanceof paper.CompoundPath)) {
-          const strokeHit = item.hitTest(viewPoint, { stroke: true, tolerance: 8 })
+	        const strokeTol = 8 / zoom
+	        const strokeHit = item.hitTest(viewPoint, { stroke: true, tolerance: strokeTol })
           if (strokeHit && strokeHit.type === 'stroke' && strokeHit.location) {
             // Insert a new segment at the hit location on the curve
             const path = strokeHit.location.path
@@ -638,7 +644,8 @@ export default function Canvas() {
       }
 
       // Clicked outside nodes and path edge — check if still on the shape
-      const hitResult = drawLayer.hitTest(viewPoint, { fill: true, stroke: true, tolerance: 8 })
+	    const shapeTol = 8 / zoom
+	    const hitResult = drawLayer.hitTest(viewPoint, { fill: true, stroke: true, tolerance: shapeTol })
       const hitItem = hitTestShape(drawLayer, hitResult)
       if (!hitItem || hitItem.data?.shapeId !== editingShapeIdRef.current) {
         selectedNodeRef.current = null
@@ -1028,11 +1035,13 @@ export default function Canvas() {
 
     // --- Hover cursor feedback in node edit mode ---
     if (editModeRef.current === 'node' && !draggingNodeRef.current && tool === 'select') {
+	    const zoom = scope.view.zoom ?? 1
       let cursor: string | null = null
       // Check if hovering over a node/handle in the overlay
       const overlay = nodeOverlayRef.current
       if (overlay) {
-        const hitOverlay = overlay.hitTest(viewPoint, { fill: true, tolerance: 10 })
+	      const hitTol = 10 / zoom
+	      const hitOverlay = overlay.hitTest(viewPoint, { fill: true, tolerance: hitTol })
         if (hitOverlay?.item?.data?.nodeType) {
           cursor = 'pointer'
         }
@@ -1044,7 +1053,8 @@ export default function Canvas() {
           const drawLayer = getDrawLayer()
           const item = drawLayer.children.find((c) => c.data?.shapeId === sid)
           if (item && (item instanceof paper.Path || item instanceof paper.CompoundPath)) {
-            const strokeHit = item.hitTest(viewPoint, { stroke: true, tolerance: 8 })
+	          const strokeTol = 8 / zoom
+	          const strokeHit = item.hitTest(viewPoint, { stroke: true, tolerance: strokeTol })
             if (strokeHit && strokeHit.type === 'stroke') {
               cursor = 'copy' // crosshair-like to indicate "add node here"
             }
@@ -2360,7 +2370,7 @@ export default function Canvas() {
   // Trigger node overlay redraw when edit mode changes
   useEffect(() => {
     drawNodeOverlay()
-  }, [editMode, editingShapeId, shapes, drawNodeOverlay])
+	}, [editMode, editingShapeId, shapes, zoomLevel, drawNodeOverlay])
 
   // --- Mouse wheel zoom ---
   const onWheel = useCallback((e: React.WheelEvent) => {
@@ -2393,15 +2403,130 @@ export default function Canvas() {
     useStore.getState().setZoomLevel(newZoom)
   }, [drawSelectionOverlay])
 
+  /**
+   * Bevel (chamfer) the currently selected node in node-edit mode by inserting
+   * two new points offset from the corner along the adjacent edges.
+   *
+   * Note: for now this is intentionally conservative and only supports
+   * straight/corner nodes (no bezier handles) on paths with well-defined
+   * prev/next segments.
+   */
+  const bevelSelectedNode = useCallback((distance: number) => {
+    const sid = editingShapeIdRef.current
+    const globalIdx = selectedNodeRef.current
+    if (!sid || globalIdx === null) return
+    if (!Number.isFinite(distance) || distance <= 0) return
+
+    const drawLayer = getDrawLayer()
+    const item = drawLayer.children.find((c) => c.data?.shapeId === sid)
+    if (!item || !(item instanceof paper.Path || item instanceof paper.CompoundPath)) return
+
+    const paths: paper.Path[] = item instanceof paper.CompoundPath
+      ? (item.children as paper.Path[])
+      : [item as paper.Path]
+
+    // Locate the segment across all sub-paths
+    let count = 0
+    let path: paper.Path | null = null
+    let segIndex = -1
+    for (const p of paths) {
+      if (globalIdx < count + p.segments.length) {
+        path = p
+        segIndex = globalIdx - count
+        break
+      }
+      count += p.segments.length
+    }
+    if (!path || segIndex < 0) return
+
+    const seg = path.segments[segIndex]
+    if (!seg) return
+
+    // Only bevel corner points (no bezier handles)
+    const isSmooth = seg.handleIn.length > 0 || seg.handleOut.length > 0
+    if (isSmooth) {
+      window.alert('Bevel currently supports corner points only. Press S to toggle to a corner (remove handles) and try again.')
+      return
+    }
+
+    const n = path.segments.length
+    const isClosed = !!path.closed
+    if (!isClosed && (segIndex === 0 || segIndex === n - 1)) {
+      window.alert('Cannot bevel the end point of an open path.')
+      return
+    }
+    if (n < 3) return
+
+    const prevSeg = path.segments[(segIndex - 1 + n) % n]
+    const nextSeg = path.segments[(segIndex + 1) % n]
+    if (!prevSeg || !nextSeg) return
+
+    const corner = seg.point
+    const vPrev = prevSeg.point.subtract(corner)
+    const vNext = nextSeg.point.subtract(corner)
+    const lenPrev = vPrev.length
+    const lenNext = vNext.length
+    if (lenPrev < 0.001 || lenNext < 0.001) return
+
+    // Clamp distance to avoid crossing past neighbors
+    const d = Math.min(distance, lenPrev * 0.49, lenNext * 0.49)
+    if (d <= 0) return
+
+    const p1 = corner.add(vPrev.normalize(d))
+    const p2 = corner.add(vNext.normalize(d))
+
+    // Replace corner with p1 and insert p2 after it
+    seg.point = p1
+    seg.handleIn = new paper.Point(0, 0)
+    seg.handleOut = new paper.Point(0, 0)
+    const newSeg = new paper.Segment(p2)
+    newSeg.handleIn = new paper.Point(0, 0)
+    newSeg.handleOut = new paper.Point(0, 0)
+    path.insert(segIndex + 1, newSeg)
+
+    drawNodeOverlay()
+    saveHistory('Bevel corner')
+  }, [drawNodeOverlay, saveHistory])
+
+  const bevelSelectedNodePrompt = useCallback(() => {
+    const defaultValue = '12'
+    const raw = window.prompt('Bevel size (px):', defaultValue)
+    if (raw === null) return
+    const d = Number.parseFloat(raw)
+    if (!Number.isFinite(d) || d <= 0) {
+      window.alert('Please enter a positive number.')
+      return
+    }
+    bevelSelectedNode(d)
+  }, [bevelSelectedNode])
+
   // Right-click context menu
   const onContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
-    // Also select shape under cursor if nothing selected
+    // Also select vertex under cursor in node edit mode
     const scope = scopeRef.current
     if (scope) {
       scope.activate()
       const rect = canvasRef.current!.getBoundingClientRect()
       const viewPt = scope.view.viewToProject(new paper.Point(e.clientX - rect.left, e.clientY - rect.top))
+
+      if (editModeRef.current === 'node') {
+        const overlay = nodeOverlayRef.current
+        if (overlay) {
+	        const zoom = scope.view.zoom ?? 1
+	        const hitTol = 10 / zoom
+	        const hitResult = overlay.hitTest(viewPt, { fill: true, tolerance: hitTol })
+          if (hitResult?.item?.data?.nodeType) {
+            const { nodeType, segIndex } = hitResult.item.data
+            if (nodeType === 'point') {
+              selectedNodeRef.current = segIndex
+              drawNodeOverlay()
+            }
+          }
+        }
+      }
+
+      // Also select shape under cursor if nothing selected
       const drawLayer = getDrawLayer()
       const hitResult = drawLayer.hitTest(viewPt, { fill: true, stroke: true, tolerance: 8 })
       const hitItem = hitTestShape(drawLayer, hitResult)
@@ -2413,7 +2538,7 @@ export default function Canvas() {
       }
     }
     setContextMenu({ x: e.clientX, y: e.clientY })
-  }, [])
+  }, [drawNodeOverlay])
 
   // Determine cursor
   const getCursorStyle = (): string => {
@@ -2430,7 +2555,16 @@ export default function Canvas() {
   const hasSelection = selectedShapeIds.length > 0
   const hasClipboard = !!useStore((s) => s.clipboard)
 
+  const isNodeMode = editMode === 'node'
+  const hasSelectedNode = selectedNodeRef.current !== null
+
   const ctxMenuItems: { label: string; action: () => void; disabled?: boolean; separator?: boolean }[] = [
+    ...(isNodeMode
+      ? [
+        { label: 'Bevel corner…', action: () => bevelSelectedNodePrompt(), disabled: !hasSelectedNode },
+        { label: '', action: () => {}, separator: true },
+      ]
+      : []),
     { label: 'Cut', action: () => { handleCopy(); deleteSelected() }, disabled: !hasSelection },
     { label: 'Copy', action: () => handleCopy(), disabled: !hasSelection },
     { label: 'Paste', action: () => handlePaste(), disabled: !hasClipboard },
