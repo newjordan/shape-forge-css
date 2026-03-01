@@ -93,6 +93,14 @@ interface AppState {
   recentColors: string[]
   addRecentColor: (color: string) => void
 
+  // Reference image (background tracing layer)
+  refImageUrl: string | null
+  refImageOpacity: number
+  refImageVisible: boolean
+  setRefImageUrl: (url: string | null) => void
+  setRefImageOpacity: (v: number) => void
+  setRefImageVisible: (v: boolean) => void
+
   // Shortcuts help overlay
   showShortcutsHelp: boolean
   setShowShortcutsHelp: (v: boolean) => void
@@ -245,6 +253,14 @@ export const useStore = create<AppState>((set, get) => ({
     const filtered = s.recentColors.filter((c) => c.toLowerCase() !== lc)
     return { recentColors: [color, ...filtered].slice(0, 12) }
   }),
+
+  // Reference image
+  refImageUrl: null,
+  refImageOpacity: 0.3,
+  refImageVisible: true,
+  setRefImageUrl: (url) => set({ refImageUrl: url }),
+  setRefImageOpacity: (v) => set({ refImageOpacity: v }),
+  setRefImageVisible: (v) => set({ refImageVisible: v }),
 
   // Shortcuts help
   showShortcutsHelp: false,

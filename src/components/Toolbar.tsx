@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useStore } from '../store'
 import type { ToolType, BooleanOp } from '../types'
-import { getProject, getDrawLayer, batchBooleanOp, findProximityClusters, nextId } from '../engine'
+import { getDrawLayer, batchBooleanOp, findProximityClusters, nextId, exportHistoryJSON } from '../engine'
 import paper from 'paper'
 import type { ShapeItem } from '../types'
 
@@ -73,9 +73,8 @@ function LayerItem({ shape, isSelected, selectedShapeIds, dragOverId, dragPositi
     const item = drawLayer.children.find((c) => c.data?.shapeId === shape.id)
     if (item) item.remove()
     useStore.getState().removeShape(shape.id)
-    const project = getProject()
     useStore.getState().pushHistory({
-      json: project.exportJSON(),
+			json: exportHistoryJSON(),
       shapes: useStore.getState().shapes,
       description: `Delete ${shape.name}`,
     })
@@ -193,8 +192,7 @@ export default function Toolbar({ onOpenTrace }: ToolbarProps) {
           const item = drawLayer.children.find((c) => c.data?.shapeId === shape.id)
           if (item) drawLayer.addChild(item)
         }
-        const project = getProject()
-        store.pushHistory({ json: project.exportJSON(), shapes: useStore.getState().shapes, description: 'Reorder layers' })
+				store.pushHistory({ json: exportHistoryJSON(), shapes: useStore.getState().shapes, description: 'Reorder layers' })
       }
     }
     handleLayerDragEnd()
@@ -235,7 +233,7 @@ export default function Toolbar({ onOpenTrace }: ToolbarProps) {
     }
     store.addShape(shapeItem)
     store.setSelectedShapeIds([newId])
-    store.pushHistory({ json: getProject().exportJSON(), shapes: useStore.getState().shapes, description: `Batch ${op} (${paths.length})` })
+		store.pushHistory({ json: exportHistoryJSON(), shapes: useStore.getState().shapes, description: `Batch ${op} (${paths.length})` })
   }
 
   // Auto-merge nearby shapes by proximity clustering
@@ -273,7 +271,7 @@ export default function Toolbar({ onOpenTrace }: ToolbarProps) {
     }
 
     store.setSelectedShapeIds([])
-    store.pushHistory({ json: getProject().exportJSON(), shapes: useStore.getState().shapes, description: `Merge nearby (${clusters.length} clusters)` })
+		store.pushHistory({ json: exportHistoryJSON(), shapes: useStore.getState().shapes, description: `Merge nearby (${clusters.length} clusters)` })
   }
 
   return (

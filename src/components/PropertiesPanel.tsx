@@ -3,7 +3,7 @@ import paper from 'paper'
 import { useStore } from '../store'
 import { STYLE_PRESETS } from '../types'
 import type { ShapeStyle, PrimitiveParams } from '../types'
-import { getDrawLayer, getProject, applyStyle, drawArrowMarkers, regeneratePrimitive } from '../engine'
+import { getDrawLayer, applyStyle, drawArrowMarkers, regeneratePrimitive, exportHistoryJSON } from '../engine'
 
 export default function PropertiesPanel() {
   const currentStyle = useStore((s) => s.currentStyle)
@@ -27,8 +27,7 @@ export default function PropertiesPanel() {
   // Helper: snapshot the entire project for undo history
   const saveHistory = useCallback((desc: string) => {
     try {
-      const project = getProject()
-      const json = project.exportJSON()
+			const json = exportHistoryJSON()
       pushHistory({ json, shapes: useStore.getState().shapes, description: desc })
     } catch { /* engine not yet initialised */ }
   }, [pushHistory])

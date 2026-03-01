@@ -354,6 +354,52 @@ function withCleanLayer<T>(fn: (drawLayer: paper.Layer) => T): T {
   }
 }
 
+/**
+ * Snapshot the draw layer for undo/redo history.
+ *
+ * We intentionally exclude overlays/guides and only serialize items that represent shapes.
+ * The returned JSON is designed to be imported into the draw layer (see replaceDrawLayerFromHistoryJSON).
+ */
+export function exportHistoryJSON(): string {
+  const drawLayer = getDrawLayer()
+
+  // Clone ONLY non-overlay children into a temporary group.
+  // (Do not rely on `visible`, since hidden shapes must still be captured.)
+  const clones = drawLayer.children
+    .filter((c) => !isExportExcluded(c))
+    .map((c) => c.clone({ insert: false }))
+
+  // `insert: false` avoids mutating the live project during snapshotting.
+  const tempGroup = new paper.Group({ children: clones, insert: false })
+  const json = tempGroup.exportJSON()
+  tempGroup.remove()
+  return json
+}
+
+/**
+ * Replace the draw layer contents from a history JSON snapshot.
+ *
+ * This expects JSON produced by exportHistoryJSON(). It imports a temporary wrapper group,
+ * then hoists its children so shapes remain direct children of the draw layer.
+ */
+export function replaceDrawLayerFromHistoryJSON(json: string): void {
+  const drawLayer = getDrawLayer()
+  drawLayer.removeChildren()
+  drawLayer.activate()
+
+  const imported = drawLayer.importJSON(json) as paper.Item
+  if (!imported) return
+
+  // Keep shape items as direct children of the draw layer.
+  if (imported instanceof paper.Group) {
+    const children = [...imported.children]
+    for (const child of children) drawLayer.addChild(child)
+    imported.remove()
+  } else {
+    drawLayer.addChild(imported)
+  }
+}
+
 export function exportSVG(): string {
   return withCleanLayer((drawLayer) => {
     return drawLayer.exportSVG({ asString: true }) as string
@@ -773,6 +819,32 @@ export function createPathsFromTrace(
 
   applyStyle(result, style)
   return result
+}
+
+// --- Save / Load Project ---
+
+export interface ProjectFile {
+  version: 1
+  canvasJson: string
+  shapes: import('./types').ShapeItem[]
+  canvasBgColor: string
+}
+
+/** Serialize the entire project (draw layer + shape metadata) to a downloadable JSON string. */
+export function saveProjectJSON(shapes: import('./types').ShapeItem[], canvasBgColor: string): string {
+  const canvasJson = exportHistoryJSON()
+  const project: ProjectFile = { version: 1, canvasJson, shapes, canvasBgColor }
+  return JSON.stringify(project, null, 2)
+}
+
+/** Load a project file and restore the draw layer + return shape metadata. */
+export function loadProjectJSON(jsonStr: string): { shapes: import('./types').ShapeItem[]; canvasBgColor: string } {
+  const project: ProjectFile = JSON.parse(jsonStr)
+  if (project.version !== 1 || !project.canvasJson || !project.shapes) {
+    throw new Error('Invalid Shape Forge project file')
+  }
+  replaceDrawLayerFromHistoryJSON(project.canvasJson)
+  return { shapes: project.shapes, canvasBgColor: project.canvasBgColor ?? '#0d0d1a' }
 }
 
 /** Simple path offset using Paper.js — expand or contract a path */

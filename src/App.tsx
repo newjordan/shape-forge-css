@@ -5,7 +5,7 @@ import PropertiesPanel from './components/PropertiesPanel'
 import ExportPanel from './components/ExportPanel'
 import ImageTraceModal from './components/ImageTraceModal'
 import { useStore } from './store'
-import { createPathsFromTrace, getProject, nextId } from './engine'
+import { createPathsFromTrace, nextId, exportHistoryJSON, saveProjectJSON, loadProjectJSON } from './engine'
 import type { ShapeItem, TraceResult, TraceOptions } from './types'
 
 /** Bottom status bar showing cursor position, selection info, and canvas dimensions. */
@@ -178,13 +178,67 @@ const statusBarStyles: Record<string, React.CSSProperties> = {
 
 export default function App() {
   const [showExport, setShowExport] = useState(false)
+  const [showRefPanel, setShowRefPanel] = useState(false)
   const [traceFile, setTraceFile] = useState<File | null>(null)
   const traceFileInputRef = useRef<HTMLInputElement>(null)
+  const loadFileInputRef = useRef<HTMLInputElement>(null)
+  const refFileInputRef = useRef<HTMLInputElement>(null)
   const canUndo = useStore((s) => s.canUndo())
   const canRedo = useStore((s) => s.canRedo())
   const activeTool = useStore((s) => s.activeTool)
   const currentStyle = useStore((s) => s.currentStyle)
   const zoomLevel = useStore((s) => s.zoomLevel)
+  const shapes = useStore((s) => s.shapes)
+  const canvasBgColor = useStore((s) => s.canvasBgColor)
+  const refImageUrl = useStore((s) => s.refImageUrl)
+  const refImageOpacity = useStore((s) => s.refImageOpacity)
+  const refImageVisible = useStore((s) => s.refImageVisible)
+
+  const handleLoadRefImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    // Revoke previous URL if any
+    if (refImageUrl) URL.revokeObjectURL(refImageUrl)
+    const url = URL.createObjectURL(file)
+    useStore.getState().setRefImageUrl(url)
+    if (refFileInputRef.current) refFileInputRef.current.value = ''
+  }
+
+  const handleRemoveRefImage = () => {
+    if (refImageUrl) URL.revokeObjectURL(refImageUrl)
+    useStore.getState().setRefImageUrl(null)
+  }
+
+  const handleSaveProject = () => {
+    const json = saveProjectJSON(shapes, canvasBgColor)
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'shape-forge-project.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleLoadProject = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        const { shapes: loadedShapes, canvasBgColor: bgColor } = loadProjectJSON(reader.result as string)
+        const store = useStore.getState()
+        store.setShapes(loadedShapes)
+        store.setSelectedShapeIds([])
+        store.setCanvasBgColor(bgColor)
+        store.pushHistory({ json: exportHistoryJSON(), shapes: loadedShapes, description: 'Load project' })
+      } catch (err) {
+        alert('Failed to load project file: ' + (err instanceof Error ? err.message : 'Unknown error'))
+      }
+    }
+    reader.readAsText(file)
+    if (loadFileInputRef.current) loadFileInputRef.current.value = ''
+  }
 
   const handleOpenTrace = () => {
     traceFileInputRef.current?.click()
@@ -213,7 +267,7 @@ export default function App() {
       store.addShape(shapeItem)
       store.setSelectedShapeIds([id])
       store.pushHistory({
-        json: getProject().exportJSON(),
+				json: exportHistoryJSON(),
         shapes: useStore.getState().shapes,
         description: 'Image trace',
       })
@@ -253,6 +307,31 @@ export default function App() {
             ↪
           </button>
           <button
+            onClick={handleSaveProject}
+            style={{ ...styles.topBtn, padding: '4px 12px' }}
+            title="Save Project (Ctrl+S)"
+          >
+            💾 Save
+          </button>
+          <button
+            onClick={() => loadFileInputRef.current?.click()}
+            style={{ ...styles.topBtn, padding: '4px 12px' }}
+            title="Open Project"
+          >
+            📂 Open
+          </button>
+          <button
+            onClick={() => setShowRefPanel(!showRefPanel)}
+            style={{
+              ...styles.topBtn,
+              background: showRefPanel ? '#3a3a6e' : '#2a2a4e',
+              padding: '4px 12px',
+            }}
+            title="Reference Image"
+          >
+            🖼 Ref
+          </button>
+          <button
             onClick={() => setShowExport(!showExport)}
             style={{
               ...styles.topBtn,
@@ -278,18 +357,90 @@ export default function App() {
         <div style={styles.canvasArea}>
           <Canvas />
           {showExport && <ExportPanel />}
+
+          {/* Reference Image Panel */}
+          {showRefPanel && (
+            <div style={{
+              position: 'absolute', top: 8, right: 8, zIndex: 100,
+              background: '#1e1e3a', border: '1px solid #3a3a6e', borderRadius: 8,
+              padding: 12, minWidth: 200, color: '#ccc', fontSize: 12,
+            }}>
+              <div style={{ fontWeight: 700, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                Reference Image
+                <button onClick={() => setShowRefPanel(false)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 14 }}>✕</button>
+              </div>
+              {!refImageUrl ? (
+                <button
+                  onClick={() => refFileInputRef.current?.click()}
+                  style={{ ...styles.topBtn, padding: '6px 12px', width: '100%' }}
+                >
+                  📎 Load Reference Image
+                </button>
+              ) : (
+                <>
+                  <div style={{ marginBottom: 8 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={refImageVisible}
+                        onChange={(e) => useStore.getState().setRefImageVisible(e.target.checked)}
+                      />
+                      Visible
+                    </label>
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <label style={{ display: 'block', marginBottom: 4 }}>Opacity: {Math.round(refImageOpacity * 100)}%</label>
+                    <input
+                      type="range" min="0" max="1" step="0.05"
+                      value={refImageOpacity}
+                      onChange={(e) => useStore.getState().setRefImageOpacity(parseFloat(e.target.value))}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      onClick={() => refFileInputRef.current?.click()}
+                      style={{ ...styles.topBtn, padding: '4px 8px', flex: 1 }}
+                    >
+                      Replace
+                    </button>
+                    <button
+                      onClick={handleRemoveRefImage}
+                      style={{ ...styles.topBtn, padding: '4px 8px', flex: 1, background: '#4a2020' }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <StatusBar />
         </div>
         <PropertiesPanel />
       </div>
 
-      {/* Hidden file input for trace import */}
+      {/* Hidden file inputs */}
       <input
         ref={traceFileInputRef}
         type="file"
         accept="image/png,image/jpeg,image/webp,image/gif"
         style={{ display: 'none' }}
         onChange={handleTraceFileSelected}
+      />
+      <input
+        ref={loadFileInputRef}
+        type="file"
+        accept=".json,application/json"
+        style={{ display: 'none' }}
+        onChange={handleLoadProject}
+      />
+      <input
+        ref={refFileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        style={{ display: 'none' }}
+        onChange={handleLoadRefImage}
       />
 
       {/* Image Trace Modal */}
@@ -357,6 +508,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
+    position: 'relative',
   },
 }
 

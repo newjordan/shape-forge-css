@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import {
   initEngine, getScope, getProject, getDrawLayer, nextId, applyStyle, drawArrowMarkers,
   createRectangle, createCircle, createRoundedRect, createPolygon, createStar, createLine,
+  exportHistoryJSON, replaceDrawLayerFromHistoryJSON, saveProjectJSON,
 } from '../engine'
 import type { ShapeItem, HistoryEntry } from '../types'
 
@@ -41,6 +42,8 @@ export default function Canvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const scopeRef = useRef<paper.PaperScope | null>(null)
   const gridLayerRef = useRef<paper.Layer | null>(null)
+  const refLayerRef = useRef<paper.Layer | null>(null)
+  const refRasterRef = useRef<paper.Raster | null>(null)
   const dragStartRef = useRef<paper.Point | null>(null)
   const previewRef = useRef<paper.Item | null>(null)
   const selectedItemRef = useRef<paper.Item | null>(null)
@@ -82,6 +85,13 @@ export default function Canvas() {
     anchorPoint: paper.Point
     startBounds: paper.Rectangle
     startPoint: paper.Point
+    // The handle point on the *raw* selection bounds at drag start
+    startHandlePoint: paper.Point
+    // The constant vector from raw handle point -> overlay handle point (selection overlay uses padding)
+    handlePadOffset: paper.Point
+    // Cursor offset from the overlay handle point at drag start (keeps handle under cursor)
+    grabOffset: paper.Point
+	    origMatrices: Map<string, paper.Matrix>
   } | null>(null)
   // Paste callback ref (avoids stale closure in paste event listener)
   const handlePasteRef = useRef<() => void>(() => {})
@@ -127,8 +137,7 @@ export default function Canvas() {
   spaceHeldRef.current = spaceHeld
 
   const saveHistory = useCallback((desc: string) => {
-    const project = getProject()
-    const json = project.exportJSON()
+		const json = exportHistoryJSON()
     pushHistory({ json, shapes: useStore.getState().shapes, description: desc })
   }, [pushHistory])
 
@@ -384,6 +393,12 @@ export default function Canvas() {
     gridLayer.locked = true
     gridLayerRef.current = gridLayer
 
+    // Create a reference image layer (between grid and draw, locked & non-interactive)
+    const refLayer = new paper.Layer()
+    refLayer.name = 'ref'
+    refLayer.locked = true
+    refLayerRef.current = refLayer
+
     // Create the main drawing layer and activate it
     const drawLayer = new paper.Layer()
     drawLayer.name = 'draw'
@@ -432,6 +447,61 @@ export default function Canvas() {
       drawGrid(scope, gridLayerRef.current)
     }
   }, [snapToGrid, gridSize])
+
+  // --- Reference image layer management ---
+  const refImageUrl = useStore((s) => s.refImageUrl)
+  const refImageOpacity = useStore((s) => s.refImageOpacity)
+  const refImageVisible = useStore((s) => s.refImageVisible)
+  useEffect(() => {
+    const scope = scopeRef.current
+    const refLayer = refLayerRef.current
+    if (!scope || !refLayer) return
+
+    // Remove old raster
+    if (refRasterRef.current) {
+      refRasterRef.current.remove()
+      refRasterRef.current = null
+    }
+
+    if (!refImageUrl) return
+
+    const prevActive = scope.project.activeLayer
+    refLayer.locked = false
+    refLayer.activate()
+
+    const raster = new paper.Raster(refImageUrl)
+    raster.onLoad = () => {
+      // Center the reference image on the current view
+      raster.position = scope.view.center
+      // Scale so the image fits within the viewport (80% of view)
+      const vw = scope.view.viewSize.width
+      const vh = scope.view.viewSize.height
+      const maxDim = Math.max(raster.width, raster.height)
+      const fitSize = Math.min(vw, vh) * 0.8
+      if (maxDim > fitSize) {
+        raster.scale(fitSize / maxDim)
+      }
+      raster.opacity = refImageOpacity
+      raster.visible = refImageVisible
+      raster.data = { isRefImage: true }
+      refRasterRef.current = raster
+      refLayer.locked = true
+      prevActive.activate()
+    }
+  }, [refImageUrl])
+
+  // Update ref image opacity/visibility without re-creating the raster
+  useEffect(() => {
+    if (refRasterRef.current) {
+      refRasterRef.current.opacity = refImageOpacity
+    }
+  }, [refImageOpacity])
+
+  useEffect(() => {
+    if (refRasterRef.current) {
+      refRasterRef.current.visible = refImageVisible
+    }
+  }, [refImageVisible])
 
   /** Convert mouse event to Paper.js project coordinates */
   const toProjectPoint = useCallback((e: React.MouseEvent): paper.Point => {
@@ -666,7 +736,8 @@ export default function Canvas() {
     if (tool === 'select') {
       // Check if clicking on a resize or rotate handle first
       if (selectionOverlayRef.current) {
-        const handleHit = selectionOverlayRef.current.hitTest(viewPoint, { fill: true, tolerance: 8 / (scope.view.zoom ?? 1) })
+	        const zoom = scope.view.zoom ?? 1
+	        const handleHit = selectionOverlayRef.current.hitTest(viewPoint, { fill: true, tolerance: 8 / zoom })
 
         // Rotation handle check
         if (handleHit?.item?.data?.rotateHandle) {
@@ -700,20 +771,59 @@ export default function Canvas() {
             if (item) combinedBounds = combinedBounds ? combinedBounds.unite(item.bounds) : item.bounds.clone()
           }
           if (combinedBounds) {
+            // NOTE: drawSelectionOverlay() uses `combinedBounds.expand(4)`.
+            // Resizing must be computed from the *raw* bounds, but we track the overlay handle padding
+            // so the handle stays under the cursor.
+            const rawBounds = combinedBounds.clone()
+            const overlayBounds = combinedBounds.expand(4)
+	            // Capture original matrices so resize is stable (no compounding / bounds jitter)
+	            const origMatrices = new Map<string, paper.Matrix>()
+	            for (const sid of useStore.getState().selectedShapeIds) {
+	              const item = drawLayer.children.find((c) => c.data?.shapeId === sid)
+	              if (item) origMatrices.set(sid, item.matrix.clone())
+	            }
             // Determine anchor point (opposite corner/edge)
             const anchorMap: Record<string, paper.Point> = {
-              'tl': combinedBounds.bottomRight, 'tr': combinedBounds.bottomLeft,
-              'bl': combinedBounds.topRight, 'br': combinedBounds.topLeft,
-              't': new paper.Point(combinedBounds.center.x, combinedBounds.bottom),
-              'b': new paper.Point(combinedBounds.center.x, combinedBounds.top),
-              'l': new paper.Point(combinedBounds.right, combinedBounds.center.y),
-              'r': new paper.Point(combinedBounds.left, combinedBounds.center.y),
+              'tl': rawBounds.bottomRight, 'tr': rawBounds.bottomLeft,
+              'bl': rawBounds.topRight, 'br': rawBounds.topLeft,
+              't': new paper.Point(rawBounds.center.x, rawBounds.bottom),
+              'b': new paper.Point(rawBounds.center.x, rawBounds.top),
+              'l': new paper.Point(rawBounds.right, rawBounds.center.y),
+              'r': new paper.Point(rawBounds.left, rawBounds.center.y),
             }
+	            const handlePointMap: Record<string, paper.Point> = {
+              'tl': rawBounds.topLeft,
+              'tr': rawBounds.topRight,
+              'bl': rawBounds.bottomLeft,
+              'br': rawBounds.bottomRight,
+              't': new paper.Point(rawBounds.center.x, rawBounds.top),
+              'b': new paper.Point(rawBounds.center.x, rawBounds.bottom),
+              'l': new paper.Point(rawBounds.left, rawBounds.center.y),
+              'r': new paper.Point(rawBounds.right, rawBounds.center.y),
+	            }
+            const overlayHandlePointMap: Record<string, paper.Point> = {
+              'tl': overlayBounds.topLeft,
+              'tr': overlayBounds.topRight,
+              'bl': overlayBounds.bottomLeft,
+              'br': overlayBounds.bottomRight,
+              't': new paper.Point(overlayBounds.center.x, overlayBounds.top),
+              'b': new paper.Point(overlayBounds.center.x, overlayBounds.bottom),
+              'l': new paper.Point(overlayBounds.left, overlayBounds.center.y),
+              'r': new paper.Point(overlayBounds.right, overlayBounds.center.y),
+            }
+            const startHandlePoint = handlePointMap[handleId]
+            const overlayHandlePoint = overlayHandlePointMap[handleId]
+            const handlePadOffset = overlayHandlePoint.subtract(startHandlePoint)
+            const grabOffset = viewPoint.subtract(overlayHandlePoint)
             resizeDragRef.current = {
               handle: handleId,
               anchorPoint: anchorMap[handleId],
-              startBounds: combinedBounds.clone(),
+              startBounds: rawBounds.clone(),
               startPoint: viewPoint.clone(),
+	              startHandlePoint,
+              handlePadOffset,
+	              grabOffset,
+	              origMatrices,
             }
             return
           }
@@ -1095,64 +1205,66 @@ export default function Canvas() {
 
     // --- Resize handle drag ---
     if (resizeDragRef.current && tool === 'select') {
-      const { handle, anchorPoint, startBounds } = resizeDragRef.current
+      const { handle, anchorPoint, startBounds, startPoint, origMatrices } = resizeDragRef.current
       const drawLayer = getDrawLayer()
       const state = useStore.getState()
 
-      // Compute new bounds from anchor + current mouse position
-      let newX = viewPoint.x
-      let newY = viewPoint.y
-      // For edge handles, constrain the axis that shouldn't change
-      if (handle === 't' || handle === 'b') newX = handle === 't' ? startBounds.topRight.x : startBounds.bottomRight.x
-      if (handle === 'l' || handle === 'r') newY = handle === 'l' ? startBounds.bottomLeft.y : startBounds.bottomRight.y
+      // Use mouse delta (not distance-to-anchor) to avoid hypersensitivity on thin/tiny selections.
+      const delta = viewPoint.subtract(startPoint)
 
-      let newBounds = new paper.Rectangle(anchorPoint, new paper.Point(newX, newY))
+      const dirMap: Record<string, { sx: -1 | 0 | 1; sy: -1 | 0 | 1 }> = {
+        tl: { sx: -1, sy: -1 },
+        tr: { sx: 1, sy: -1 },
+        bl: { sx: -1, sy: 1 },
+        br: { sx: 1, sy: 1 },
+        t: { sx: 0, sy: -1 },
+        b: { sx: 0, sy: 1 },
+        l: { sx: -1, sy: 0 },
+        r: { sx: 1, sy: 0 },
+      }
+      const dir = dirMap[handle] ?? { sx: 0, sy: 0 }
 
-      // Shift: constrain proportions
-      if (e.shiftKey && startBounds.width > 0 && startBounds.height > 0) {
-        const aspect = startBounds.width / startBounds.height
-        let w = Math.abs(newBounds.width)
-        let h = Math.abs(newBounds.height)
-        if (w / h > aspect) {
-          h = w / aspect
+      const startW = Math.abs(startBounds.width)
+      const startH = Math.abs(startBounds.height)
+
+      let newW = startW
+      let newH = startH
+      if (dir.sx !== 0) newW = startW + dir.sx * delta.x
+      if (dir.sy !== 0) newH = startH + dir.sy * delta.y
+
+      // Shift: constrain proportions (corners only)
+      if (e.shiftKey && (handle === 'tl' || handle === 'tr' || handle === 'bl' || handle === 'br') && startW > 0.001 && startH > 0.001) {
+        const aspect = startW / startH
+        if (newH > 0 && newW / newH > aspect) {
+          newH = newW / aspect
         } else {
-          w = h * aspect
-        }
-        // Preserve the direction of scaling relative to anchor
-        const signX = (newX >= anchorPoint.x) ? 1 : -1
-        const signY = (newY >= anchorPoint.y) ? 1 : -1
-        newBounds = new paper.Rectangle(anchorPoint, new paper.Point(anchorPoint.x + signX * w, anchorPoint.y + signY * h))
-      }
-
-      // Compute scale factors
-      const scaleX = startBounds.width > 0 ? newBounds.width / startBounds.width : 1
-      const scaleY = startBounds.height > 0 ? newBounds.height / startBounds.height : 1
-
-      // Apply scale to all selected shapes relative to anchor point
-      for (const sid of state.selectedShapeIds) {
-        const item = drawLayer.children.find((c) => c.data?.shapeId === sid)
-        if (!item) continue
-        // Restore original transform first (we scale from original each frame)
-        // We store original data on first frame
-        if (!item.data._resizeOrigBounds) {
-          item.data._resizeOrigBounds = { x: item.bounds.x, y: item.bounds.y, w: item.bounds.width, h: item.bounds.height }
-          item.data._resizeOrigPos = { x: item.position.x, y: item.position.y }
-        }
-        const orig = item.data._resizeOrigBounds
-        const origPos = item.data._resizeOrigPos
-
-        // Compute new position and scale relative to anchor
-        const relX = origPos.x - anchorPoint.x
-        const relY = origPos.y - anchorPoint.y
-        item.position = new paper.Point(anchorPoint.x + relX * scaleX, anchorPoint.y + relY * scaleY)
-
-        // Scale the item's size
-        const targetW = orig.w * Math.abs(scaleX)
-        const targetH = orig.h * Math.abs(scaleY)
-        if (item.bounds.width > 0 && item.bounds.height > 0) {
-          item.scale(targetW / item.bounds.width, targetH / item.bounds.height)
+          newW = newH * aspect
         }
       }
+
+      // Prevent collapse to 0 (and prevent extreme runaway)
+      const zoom = scopeRef.current?.view.zoom ?? 1
+      const minDim = 2 / zoom
+      newW = Math.max(minDim, newW)
+      newH = Math.max(minDim, newH)
+
+      const MIN_SCALE = 0.001
+      const MAX_SCALE = 1000
+      const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+
+      const scaleX = dir.sx !== 0 && startW > 0.001 ? clamp(newW / startW, MIN_SCALE, MAX_SCALE) : 1
+      const scaleY = dir.sy !== 0 && startH > 0.001 ? clamp(newH / startH, MIN_SCALE, MAX_SCALE) : 1
+	
+	      // Apply scale to all selected shapes around the shared anchor (stable, no cumulative drift)
+	      for (const sid of state.selectedShapeIds) {
+	        const item = drawLayer.children.find((c) => c.data?.shapeId === sid)
+	        if (!item) continue
+	        const orig = origMatrices.get(sid) ?? item.matrix.clone()
+	        origMatrices.set(sid, orig)
+	        // Restore original, then apply current frame's scale around the anchor point
+	        item.matrix = orig.clone()
+        item.scale(scaleX, scaleY, anchorPoint)
+	      }
 
       // Update cursor to resize cursor
       if (canvasRef.current) {
@@ -1175,7 +1287,8 @@ export default function Canvas() {
         const drawLayer = getDrawLayer()
         // Check if hovering over a resize or rotate handle
         if (selectionOverlayRef.current) {
-          const handleHit = selectionOverlayRef.current.hitTest(viewPoint, { fill: true, tolerance: 8 / (scope.view.zoom ?? 1) })
+	          const zoom = scope.view.zoom ?? 1
+	          const handleHit = selectionOverlayRef.current.hitTest(viewPoint, { fill: true, tolerance: 8 / zoom })
           if (handleHit?.item?.data?.rotateHandle) {
             if (canvasRef.current) canvasRef.current.style.cursor = 'grab'
             return
@@ -1415,16 +1528,6 @@ export default function Canvas() {
 
     // --- Resize handle drag end ---
     if (resizeDragRef.current) {
-      // Clean up stored original bounds from items
-      const drawLayer = getDrawLayer()
-      const state = useStore.getState()
-      for (const sid of state.selectedShapeIds) {
-        const item = drawLayer.children.find((c) => c.data?.shapeId === sid)
-        if (item) {
-          delete item.data._resizeOrigBounds
-          delete item.data._resizeOrigPos
-        }
-      }
       resizeDragRef.current = null
       saveHistory('Resize')
       return
@@ -1726,6 +1829,21 @@ export default function Canvas() {
       if (e.key === ' ' && !e.repeat) {
         e.preventDefault()
         useStore.getState().setSpaceHeld(true)
+        return
+      }
+
+      // --- Save: Ctrl+S ---
+      if (e.ctrlKey && !e.shiftKey && e.key === 's') {
+        e.preventDefault()
+        const st = useStore.getState()
+        const json = saveProjectJSON(st.shapes, st.canvasBgColor)
+        const blob = new Blob([json], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'shape-forge-project.json'
+        a.click()
+        URL.revokeObjectURL(url)
         return
       }
 
@@ -2350,15 +2468,51 @@ export default function Canvas() {
   const restoreHistory = useCallback((entry: HistoryEntry) => {
     const scope = scopeRef.current!
     scope.activate()
-    const project = getProject()
-    // Clear only the draw layer, keep grid
-    const drawLayer = getDrawLayer()
-    drawLayer.removeChildren()
-    drawLayer.activate()
-    // Import restores items into the active layer
-    project.importJSON(entry.json)
-    useStore.getState().setShapes([...entry.shapes])
-  }, [])
+
+		// Clear transient UI/interaction overlays and node-edit refs before restore.
+		clearSmartGuides()
+		if (selectionOverlayRef.current) {
+			selectionOverlayRef.current.remove()
+			selectionOverlayRef.current = null
+		}
+		if (nodeOverlayRef.current) {
+			nodeOverlayRef.current.remove()
+			nodeOverlayRef.current = null
+		}
+		if (measureOverlayRef.current) {
+			measureOverlayRef.current.remove()
+			measureOverlayRef.current = null
+		}
+		if (handleGuideRef.current) {
+			handleGuideRef.current.remove()
+			handleGuideRef.current = null
+		}
+		if (marqueeRectRef.current) {
+			marqueeRectRef.current.remove()
+			marqueeRectRef.current = null
+		}
+		draggingNodeRef.current = null
+		selectedNodeRef.current = null
+		setNodeHoverCursor(null)
+		setContextMenu(null)
+
+		replaceDrawLayerFromHistoryJSON(entry.json)
+		useStore.getState().setShapes([...entry.shapes])
+
+		// If we were in node-edit, ensure the target still exists after restore.
+		const state = useStore.getState()
+		if (state.editMode === 'node') {
+			const sid = state.editingShapeId
+			const exists = !!sid && entry.shapes.some((s) => s.id === sid)
+			if (!exists) {
+				state.exitNodeEdit()
+			} else {
+				state.setSelectedShapeIds([sid!])
+				// Force immediate overlay rebuild to match restored geometry.
+				drawNodeOverlay()
+			}
+		}
+	}, [clearSmartGuides, drawNodeOverlay])
 
   // Register the restoreHistory callback so App.tsx undo/redo buttons work
   useEffect(() => {
@@ -2582,6 +2736,62 @@ export default function Canvas() {
     { label: 'Ungroup (Ctrl+Shift+G)', action: () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'G', ctrlKey: true, shiftKey: true })) }, disabled: !selectedShapeIds.some(sid => shapes.find(s => s.id === sid)?.isGroup) },
   ]
 
+  // --- Drag-and-drop PNG/image files onto canvas ---
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('Files')) {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'copy'
+    }
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    const scope = scopeRef.current
+    if (!scope) return
+
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))
+    if (files.length === 0) return
+
+    scope.activate()
+    const drawLayer = getDrawLayer()
+    drawLayer.activate()
+
+    // Compute drop position in project coordinates
+    const rect = canvasRef.current!.getBoundingClientRect()
+    const viewPt = new paper.Point(e.clientX - rect.left, e.clientY - rect.top)
+    const dropPoint = scope.view.viewToProject(viewPt)
+
+    for (const file of files) {
+      const url = URL.createObjectURL(file)
+      const raster = new paper.Raster(url)
+      raster.onLoad = () => {
+        // Scale to fit within 400px max dimension
+        const maxDim = Math.max(raster.width, raster.height)
+        if (maxDim > 400) {
+          raster.scale(400 / maxDim)
+        }
+        raster.position = dropPoint
+
+        const shapeId = nextId()
+        raster.data = { shapeId }
+
+        const shapeItem: ShapeItem = {
+          id: shapeId,
+          name: file.name.replace(/\.[^.]+$/, ''),
+          paperItemId: raster.id,
+          style: { fillColor: null, strokeColor: '#ffffff', strokeWidth: 0, opacity: 1 },
+          visible: true,
+          locked: false,
+        }
+        const store = useStore.getState()
+        store.addShape(shapeItem)
+        store.setSelectedShapeIds([shapeId])
+        saveHistory('Drop image')
+        URL.revokeObjectURL(url)
+      }
+    }
+  }, [saveHistory])
+
   return (
     <div
       style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
@@ -2603,6 +2813,8 @@ export default function Canvas() {
         {/* Canvas area */}
         <div
           ref={containerRef}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
           style={{
             flex: 1, position: 'relative', overflow: 'hidden',
             background: showCheckerboard
