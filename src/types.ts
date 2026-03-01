@@ -19,6 +19,8 @@ export interface ShapeStyle {
   strokeColor: string
   strokeWidth: number
   opacity: number
+  fillOpacity?: number
+  strokeOpacity?: number
   dashArray?: number[] | null
   strokeCap?: 'butt' | 'round' | 'square'
   strokeJoin?: 'miter' | 'round' | 'bevel'
@@ -70,6 +72,8 @@ export const DEFAULT_STYLE: ShapeStyle = {
   strokeColor: '#ffffff',
   strokeWidth: 0,
   opacity: 1,
+  fillOpacity: 1,
+  strokeOpacity: 1,
 }
 
 // --- Image Trace types ---

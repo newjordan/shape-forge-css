@@ -588,6 +588,20 @@ export default function PropertiesPanel() {
           </button>
         </div>
 
+        {currentStyle.fillColor && (
+          <div style={styles.row}>
+            <label style={styles.label}>Fill α</label>
+            <input
+              type="range"
+              min={0} max={1} step={0.05}
+              value={currentStyle.fillOpacity ?? 1}
+              onChange={(e) => applyToSelected({ fillOpacity: parseFloat(e.target.value) })}
+              style={styles.slider}
+            />
+            <span style={styles.value}>{((currentStyle.fillOpacity ?? 1) * 100).toFixed(0)}%</span>
+          </div>
+        )}
+
         <div style={styles.row}>
           <label style={styles.label}>Stroke</label>
           <input
@@ -595,6 +609,18 @@ export default function PropertiesPanel() {
             value={currentStyle.strokeColor}
             onChange={(e) => applyToSelected({ strokeColor: e.target.value })}
           />
+        </div>
+
+        <div style={styles.row}>
+          <label style={styles.label}>Stroke α</label>
+          <input
+            type="range"
+            min={0} max={1} step={0.05}
+            value={currentStyle.strokeOpacity ?? 1}
+            onChange={(e) => applyToSelected({ strokeOpacity: parseFloat(e.target.value) })}
+            style={styles.slider}
+          />
+          <span style={styles.value}>{((currentStyle.strokeOpacity ?? 1) * 100).toFixed(0)}%</span>
         </div>
 
         <div style={styles.row}>

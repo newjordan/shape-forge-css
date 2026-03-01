@@ -27,12 +27,16 @@ export function nextId(): string {
 
 export function applyStyle(item: paper.Item, style: ShapeStyle) {
   if (style.fillColor) {
-    item.fillColor = new paper.Color(style.fillColor)
+    const fc = new paper.Color(style.fillColor)
+    if (style.fillOpacity !== undefined) fc.alpha = style.fillOpacity
+    item.fillColor = fc
   } else {
     item.fillColor = null as any
   }
   if (style.strokeWidth > 0) {
-    item.strokeColor = new paper.Color(style.strokeColor)
+    const sc = new paper.Color(style.strokeColor)
+    if (style.strokeOpacity !== undefined) sc.alpha = style.strokeOpacity
+    item.strokeColor = sc
     item.strokeWidth = style.strokeWidth
   } else {
     item.strokeColor = null
