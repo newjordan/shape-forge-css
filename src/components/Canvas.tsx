@@ -84,13 +84,8 @@ export default function Canvas() {
     handle: string // 'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r'
     anchorPoint: paper.Point
     startBounds: paper.Rectangle
-    startPoint: paper.Point
-    // The handle point on the *raw* selection bounds at drag start
-    startHandlePoint: paper.Point
-    // The constant vector from raw handle point -> overlay handle point (selection overlay uses padding)
-    handlePadOffset: paper.Point
-    // Cursor offset from the overlay handle point at drag start (keeps handle under cursor)
-    grabOffset: paper.Point
+			// The handle point on the selection bounds at drag start
+			startHandlePoint: paper.Point
 	    origMatrices: Map<string, paper.Matrix>
   } | null>(null)
   // Paste callback ref (avoids stale closure in paste event listener)
@@ -288,20 +283,21 @@ export default function Canvas() {
     }
     if (!combinedBounds) return
 
-    const b = combinedBounds.expand(4)
+	  	const zoom = scope.view.zoom ?? 1
+	  	// KISS: overlay = exact bounds (no padding) so the edge you drag is the edge you see
+	  	const b = combinedBounds
     // Dashed outline
     const rect = new paper.Path.Rectangle({
       rectangle: b,
       strokeColor: new paper.Color('#6a6aff'),
-      strokeWidth: 1,
-      dashArray: [4, 3],
+	  	  strokeWidth: 1 / zoom,
+	  	  dashArray: [4 / zoom, 3 / zoom],
       fillColor: null as any,
     })
     rect.data = { isOverlay: true }
     group.addChild(rect)
 
-    // Resize handles — 8 positions
-    const zoom = scopeRef.current?.view.zoom ?? 1
+	  	// Resize handles — 8 positions
     const hs = 5 / zoom // handle half-size in project coords
     const handlePositions: { id: string; pt: paper.Point }[] = [
       { id: 'tl', pt: b.topLeft },
@@ -770,17 +766,17 @@ export default function Canvas() {
             const item = drawLayer.children.find((c) => c.data?.shapeId === sid)
             if (item) combinedBounds = combinedBounds ? combinedBounds.unite(item.bounds) : item.bounds.clone()
           }
-          if (combinedBounds) {
-            // NOTE: drawSelectionOverlay() uses `combinedBounds.expand(4)`.
-            // Resizing must be computed from the *raw* bounds, but we track the overlay handle padding
-            // so the handle stays under the cursor.
-            const rawBounds = combinedBounds.clone()
-            const overlayBounds = combinedBounds.expand(4)
+			    if (combinedBounds) {
+			      const rawBounds = combinedBounds.clone()
 	            // Capture original matrices so resize is stable (no compounding / bounds jitter)
 	            const origMatrices = new Map<string, paper.Matrix>()
 	            for (const sid of useStore.getState().selectedShapeIds) {
 	              const item = drawLayer.children.find((c) => c.data?.shapeId === sid)
-	              if (item) origMatrices.set(sid, item.matrix.clone())
+	              if (item) {
+	                // CRITICAL: disable applyMatrix so setting item.matrix doesn't bake into content
+	                item.applyMatrix = false
+	                origMatrices.set(sid, item.matrix.clone())
+	              }
 	            }
             // Determine anchor point (opposite corner/edge)
             const anchorMap: Record<string, paper.Point> = {
@@ -801,28 +797,12 @@ export default function Canvas() {
               'l': new paper.Point(rawBounds.left, rawBounds.center.y),
               'r': new paper.Point(rawBounds.right, rawBounds.center.y),
 	            }
-            const overlayHandlePointMap: Record<string, paper.Point> = {
-              'tl': overlayBounds.topLeft,
-              'tr': overlayBounds.topRight,
-              'bl': overlayBounds.bottomLeft,
-              'br': overlayBounds.bottomRight,
-              't': new paper.Point(overlayBounds.center.x, overlayBounds.top),
-              'b': new paper.Point(overlayBounds.center.x, overlayBounds.bottom),
-              'l': new paper.Point(overlayBounds.left, overlayBounds.center.y),
-              'r': new paper.Point(overlayBounds.right, overlayBounds.center.y),
-            }
-            const startHandlePoint = handlePointMap[handleId]
-            const overlayHandlePoint = overlayHandlePointMap[handleId]
-            const handlePadOffset = overlayHandlePoint.subtract(startHandlePoint)
-            const grabOffset = viewPoint.subtract(overlayHandlePoint)
+			      const startHandlePoint = handlePointMap[handleId]
             resizeDragRef.current = {
               handle: handleId,
               anchorPoint: anchorMap[handleId],
               startBounds: rawBounds.clone(),
-              startPoint: viewPoint.clone(),
-	              startHandlePoint,
-              handlePadOffset,
-	              grabOffset,
+			        startHandlePoint,
 	              origMatrices,
             }
             return
@@ -1205,55 +1185,57 @@ export default function Canvas() {
 
     // --- Resize handle drag ---
     if (resizeDragRef.current && tool === 'select') {
-      const { handle, anchorPoint, startBounds, startPoint, origMatrices } = resizeDragRef.current
+	      const { handle, anchorPoint, startBounds, startHandlePoint, origMatrices } = resizeDragRef.current
       const drawLayer = getDrawLayer()
       const state = useStore.getState()
 
-      // Use mouse delta (not distance-to-anchor) to avoid hypersensitivity on thin/tiny selections.
-      const delta = viewPoint.subtract(startPoint)
+	      // KISS resize: the edge/handle position is driven directly by the current mouse project coords.
+	      const zoom = scope.view.zoom ?? 1
+	      const startW = Math.abs(startBounds.width)
+	      const startH = Math.abs(startBounds.height)
 
-      const dirMap: Record<string, { sx: -1 | 0 | 1; sy: -1 | 0 | 1 }> = {
-        tl: { sx: -1, sy: -1 },
-        tr: { sx: 1, sy: -1 },
-        bl: { sx: -1, sy: 1 },
-        br: { sx: 1, sy: 1 },
-        t: { sx: 0, sy: -1 },
-        b: { sx: 0, sy: 1 },
-        l: { sx: -1, sy: 0 },
-        r: { sx: 1, sy: 0 },
-      }
-      const dir = dirMap[handle] ?? { sx: 0, sy: 0 }
+	      // Directions for which axes are active
+	      const xDir: -1 | 0 | 1 = (handle === 'l' || handle === 'tl' || handle === 'bl')
+	        ? -1
+	        : (handle === 'r' || handle === 'tr' || handle === 'br')
+	            ? 1
+	            : 0
+	      const yDir: -1 | 0 | 1 = (handle === 't' || handle === 'tl' || handle === 'tr')
+	        ? -1
+	        : (handle === 'b' || handle === 'bl' || handle === 'br')
+	            ? 1
+	            : 0
 
-      const startW = Math.abs(startBounds.width)
-      const startH = Math.abs(startBounds.height)
+	      // Signed start distances from anchor to handle (used to derive scale)
+	      const startDx = startHandlePoint.x - anchorPoint.x
+	      const startDy = startHandlePoint.y - anchorPoint.y
 
-      let newW = startW
-      let newH = startH
-      if (dir.sx !== 0) newW = startW + dir.sx * delta.x
-      if (dir.sy !== 0) newH = startH + dir.sy * delta.y
+	      // Signed current distances from anchor to mouse (this is the "lock")
+	      let dx = viewPoint.x - anchorPoint.x
+	      let dy = viewPoint.y - anchorPoint.y
 
-      // Shift: constrain proportions (corners only)
-      if (e.shiftKey && (handle === 'tl' || handle === 'tr' || handle === 'bl' || handle === 'br') && startW > 0.001 && startH > 0.001) {
-        const aspect = startW / startH
-        if (newH > 0 && newW / newH > aspect) {
-          newH = newW / aspect
-        } else {
-          newW = newH * aspect
-        }
-      }
+	      // Shift: lock aspect for corners only (expected to deviate from cursor on one axis)
+	      const isCorner = xDir !== 0 && yDir !== 0
+	      if (e.shiftKey && isCorner && startW > 0.001 && startH > 0.001) {
+	        const aspect = startW / startH
+	        if (Math.abs(dy) > 0.0001 && Math.abs(dx / dy) > aspect) {
+	          dx = Math.sign(dx || 1) * Math.abs(dy) * aspect
+	        } else {
+	          dy = Math.sign(dy || 1) * (Math.abs(dx) / aspect)
+	        }
+	      }
 
-      // Prevent collapse to 0 (and prevent extreme runaway)
-      const zoom = scopeRef.current?.view.zoom ?? 1
-      const minDim = 2 / zoom
-      newW = Math.max(minDim, newW)
-      newH = Math.max(minDim, newH)
+	      // Avoid singular transforms (but keep this tiny so it doesn't feel like a rubber band)
+	      const EPS = 0.001 / zoom
+	      if (xDir !== 0 && Math.abs(dx) < EPS) dx = EPS * Math.sign(startDx || 1)
+	      if (yDir !== 0 && Math.abs(dy) < EPS) dy = EPS * Math.sign(startDy || 1)
 
-      const MIN_SCALE = 0.001
-      const MAX_SCALE = 1000
-      const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+	      const MIN_SCALE = -1000
+	      const MAX_SCALE = 1000
+	      const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
-      const scaleX = dir.sx !== 0 && startW > 0.001 ? clamp(newW / startW, MIN_SCALE, MAX_SCALE) : 1
-      const scaleY = dir.sy !== 0 && startH > 0.001 ? clamp(newH / startH, MIN_SCALE, MAX_SCALE) : 1
+	      const scaleX = xDir !== 0 && Math.abs(startDx) > 0.0001 ? clamp(dx / startDx, MIN_SCALE, MAX_SCALE) : 1
+	      const scaleY = yDir !== 0 && Math.abs(startDy) > 0.0001 ? clamp(dy / startDy, MIN_SCALE, MAX_SCALE) : 1
 	
 	      // Apply scale to all selected shapes around the shared anchor (stable, no cumulative drift)
 	      for (const sid of state.selectedShapeIds) {
@@ -1528,6 +1510,12 @@ export default function Canvas() {
 
     // --- Resize handle drag end ---
     if (resizeDragRef.current) {
+      // Re-enable applyMatrix so future transforms bake into content as expected
+      const drawLayer = getDrawLayer()
+      for (const [sid] of resizeDragRef.current.origMatrices) {
+        const item = drawLayer.children.find((c) => c.data?.shapeId === sid)
+        if (item) item.applyMatrix = true
+      }
       resizeDragRef.current = null
       saveHistory('Resize')
       return
