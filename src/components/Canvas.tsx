@@ -1504,6 +1504,7 @@ export default function Canvas() {
     // --- Rotation handle drag end ---
     if (rotateDragRef.current) {
       rotateDragRef.current = null
+      if (canvasRef.current) canvasRef.current.style.cursor = 'default'
       saveHistory('Rotate')
       return
     }
@@ -1517,6 +1518,7 @@ export default function Canvas() {
         if (item) item.applyMatrix = true
       }
       resizeDragRef.current = null
+      if (canvasRef.current) canvasRef.current.style.cursor = 'default'
       saveHistory('Resize')
       return
     }
@@ -1537,6 +1539,7 @@ export default function Canvas() {
       if (isDraggingShapeRef.current) {
         isDraggingShapeRef.current = false
         clearSmartGuides()
+        if (canvasRef.current) canvasRef.current.style.cursor = 'default'
         saveHistory(altDragClonedRef.current ? 'Alt+drag duplicate' : 'Move')
       }
       altDragClonedRef.current = false
