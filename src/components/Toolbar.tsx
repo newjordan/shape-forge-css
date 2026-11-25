@@ -28,8 +28,8 @@ const boolOps: { id: BooleanOp; label: string; icon: string }[] = [
 ]
 
 /** Individual layer row with visibility, lock, rename, delete, and drag-to-reorder */
-function LayerItem({ shape, isSelected, selectedShapeIds, dragOverId, dragPosition, onDragStart: onDragStartProp, onDragOver: onDragOverProp, onDrop: onDropProp, onDragEnd: onDragEndProp }: {
-  shape: ShapeItem; isSelected: boolean; selectedShapeIds: string[]
+function LayerItem({ shape, isSelected, dragOverId, dragPosition, onDragStart: onDragStartProp, onDragOver: onDragOverProp, onDrop: onDropProp, onDragEnd: onDragEndProp }: {
+  shape: ShapeItem; isSelected: boolean
   dragOverId: string | null; dragPosition: 'above' | 'below' | null
   onDragStart: (id: string) => void; onDragOver: (id: string, pos: 'above' | 'below') => void
   onDrop: () => void; onDragEnd: () => void
@@ -403,7 +403,6 @@ export default function Toolbar({ onOpenTrace }: ToolbarProps) {
               key={s.id}
               shape={s}
               isSelected={selectedShapeIds.includes(s.id)}
-              selectedShapeIds={selectedShapeIds}
               dragOverId={dragOverId}
               dragPosition={dragPosition}
               onDragStart={handleLayerDragStart}

@@ -7,6 +7,11 @@ interface ClipboardEntry {
   paperJson: string // serialized Paper.js items
 }
 
+export interface DemoApi {
+  loadSample: () => void
+  clearCanvas: () => void
+}
+
 interface AppState {
   // Tool
   activeTool: ToolType
@@ -104,6 +109,12 @@ interface AppState {
   // Shortcuts help overlay
   showShortcutsHelp: boolean
   setShowShortcutsHelp: (v: boolean) => void
+
+  // Live-demo guide and the canvas actions it can trigger
+  showShowcase: boolean
+  setShowShowcase: (v: boolean) => void
+  demoApi: DemoApi | null
+  setDemoApi: (api: DemoApi | null) => void
 
   // Restore callback (set by Canvas so App can trigger undo/redo with Paper.js restore)
   _restoreCallback: ((entry: HistoryEntry) => void) | null
@@ -265,6 +276,11 @@ export const useStore = create<AppState>((set, get) => ({
   // Shortcuts help
   showShortcutsHelp: false,
   setShowShortcutsHelp: (v) => set({ showShortcutsHelp: v }),
+
+  showShowcase: true,
+  setShowShowcase: (v) => set({ showShowcase: v }),
+  demoApi: null,
+  setDemoApi: (api) => set({ demoApi: api }),
 
   _restoreCallback: null,
   setRestoreCallback: (cb) => set({ _restoreCallback: cb }),

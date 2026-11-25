@@ -331,6 +331,17 @@ export function getDrawLayer(): paper.Layer {
   return project.layers.find((l) => l.name === 'draw') ?? project.activeLayer
 }
 
+/** Remove authored shapes from the draw layer. Overlays and guides stay. */
+export function clearShapeItems(): void {
+  const scope = getScope()
+  scope.activate()
+  const layer = getDrawLayer()
+  layer.activate()
+  for (const child of [...layer.children]) {
+    if (child.data?.shapeId) child.remove()
+  }
+}
+
 /** Returns true if an item is an overlay, guide, or other non-shape helper */
 function isExportExcluded(item: paper.Item): boolean {
   return !!(item.data?.isOverlay || item.data?.isGuide || item.data?.isNodeOverlay)
@@ -438,6 +449,42 @@ export function exportCSSClipPath(): string {
   const pathData = exportSVGPath()
   if (!pathData) return ''
   return `clip-path: path('${pathData}');`
+}
+
+export interface FittedClipPath {
+  /** SVG path data translated and scaled to sit inside a pixel box. */
+  cssPath: string
+  width: number
+  height: number
+}
+
+/**
+ * Fit one path into a square pixel box so it can be used as a CSS `clip-path: path()`.
+ * Canvas coordinates are far too large for a small preview element; this returns
+ * a copy in that element's coordinate space. The original item is not modified.
+ */
+export function fitItemClipPath(item: paper.Item, box = 88): FittedClipPath | null {
+  if (!(item instanceof paper.Path || item instanceof paper.CompoundPath)) return null
+  if (!item.visible) return null
+  const bounds = item.bounds
+  const maxDim = Math.max(bounds.width, bounds.height)
+  if (maxDim < 0.5) return null
+
+  const clone = item.clone({ insert: false }) as paper.PathItem
+  const pad = 2
+  const scale = (box - pad * 2) / maxDim
+  clone.translate(new paper.Point(-bounds.x, -bounds.y))
+  clone.scale(scale, new paper.Point(0, 0))
+  clone.translate(new paper.Point(pad, pad))
+
+  const fitted = clone.bounds
+  const cssPath = clone.pathData.replace(/'/g, '')
+  // One extra pixel so subpixel path edges are not clipped by the preview box.
+  const width = Math.max(1, Math.ceil(fitted.right + pad) + 1)
+  const height = Math.max(1, Math.ceil(fitted.bottom + pad) + 1)
+  clone.remove()
+  if (!cssPath) return null
+  return { cssPath, width, height }
 }
 
 export function exportPNG(scale = 2): Promise<Blob> {
