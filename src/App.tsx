@@ -4,6 +4,7 @@ import Toolbar from './components/Toolbar'
 import PropertiesPanel from './components/PropertiesPanel'
 import ExportPanel from './components/ExportPanel'
 import ImageTraceModal from './components/ImageTraceModal'
+import Showcase from './components/Showcase'
 import { useStore } from './store'
 import { createPathsFromTrace, nextId, exportHistoryJSON, saveProjectJSON, loadProjectJSON } from './engine'
 import type { ShapeItem, TraceResult, TraceOptions } from './types'
@@ -193,6 +194,7 @@ export default function App() {
   const refImageUrl = useStore((s) => s.refImageUrl)
   const refImageOpacity = useStore((s) => s.refImageOpacity)
   const refImageVisible = useStore((s) => s.refImageVisible)
+  const showShowcase = useStore((s) => s.showShowcase)
 
   const handleLoadRefImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -282,6 +284,7 @@ export default function App() {
         <div style={styles.logo}>
           <span style={styles.logoIcon}>◆</span>
           <span style={styles.logoText}>Shape Forge</span>
+          <span style={styles.logoBadge}>CSS</span>
         </div>
         <div style={styles.topCenter}>
           <span style={styles.toolIndicator}>{activeTool.toUpperCase()}</span>
@@ -330,6 +333,18 @@ export default function App() {
             title="Reference Image"
           >
             🖼 Ref
+          </button>
+          <button
+            onClick={() => useStore.getState().setShowShowcase(!showShowcase)}
+            style={{
+              ...styles.topBtn,
+              background: showShowcase ? '#3a3a6e' : '#2a2a4e',
+              padding: '4px 12px',
+            }}
+            title="Show or hide the live demo guide"
+            aria-pressed={showShowcase}
+          >
+            Demo
           </button>
           <button
             onClick={() => setShowExport(!showExport)}
@@ -416,6 +431,7 @@ export default function App() {
             </div>
           )}
           <StatusBar />
+          {showShowcase && <Showcase lift={showExport} />}
         </div>
         <PropertiesPanel />
       </div>
@@ -479,6 +495,16 @@ const styles: Record<string, React.CSSProperties> = {
   logo: { display: 'flex', alignItems: 'center', gap: 8 },
   logoIcon: { fontSize: 18, color: '#6a6aff' },
   logoText: { fontSize: 14, fontWeight: 700, color: '#e0e0f0', letterSpacing: '0.05em' },
+  logoBadge: {
+    fontSize: 9,
+    fontWeight: 700,
+    letterSpacing: '0.08em',
+    color: '#d8d8ff',
+    background: '#2a2a5e',
+    border: '1px solid #4a4a8e',
+    borderRadius: 4,
+    padding: '2px 5px',
+  },
   topCenter: { display: 'flex', alignItems: 'center' },
   toolIndicator: {
     fontSize: 10,

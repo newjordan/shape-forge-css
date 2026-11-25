@@ -117,6 +117,8 @@ export default function ExportPanel() {
 
 const styles: Record<string, React.CSSProperties> = {
   panel: {
+    position: 'relative',
+    zIndex: 40,
     background: '#12121f',
     borderTop: '1px solid #2a2a3e',
     padding: 8,

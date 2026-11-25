@@ -2,10 +2,11 @@ import React, { useRef, useEffect, useCallback, useState } from 'react'
 import paper from 'paper'
 import { useStore } from '../store'
 import {
-  initEngine, getScope, getProject, getDrawLayer, nextId, applyStyle, drawArrowMarkers,
+  initEngine, getScope, getProject, getDrawLayer, nextId, applyStyle,
   createRectangle, createCircle, createRoundedRect, createPolygon, createStar, createLine,
-  exportHistoryJSON, replaceDrawLayerFromHistoryJSON, saveProjectJSON,
+  exportHistoryJSON, replaceDrawLayerFromHistoryJSON, saveProjectJSON, clearShapeItems,
 } from '../engine'
+import { loadSampleScene } from '../demoScene'
 import type { ShapeItem, HistoryEntry } from '../types'
 
 /** Constrain drag endpoint so width === height (perfect square / circle when Shift held). */
@@ -111,7 +112,6 @@ export default function Canvas() {
   const editMode = useStore((s) => s.editMode)
   const editingShapeId = useStore((s) => s.editingShapeId)
   const enterNodeEdit = useStore((s) => s.enterNodeEdit)
-  const exitNodeEdit = useStore((s) => s.exitNodeEdit)
   const spaceHeld = useStore((s) => s.spaceHeld)
   const zoomLevel = useStore((s) => s.zoomLevel)
   const canvasBgColor = useStore((s) => s.canvasBgColor)
@@ -379,7 +379,30 @@ export default function Canvas() {
   }, [drawSelectionOverlay])
 
   useEffect(() => {
-    if (!canvasRef.current || scopeRef.current) return
+    const loadSample = () => {
+      const nextShapes = loadSampleScene()
+      const store = useStore.getState()
+      store.setShapes(nextShapes)
+      store.setSelectedShapeIds([])
+      store.exitNodeEdit()
+      saveHistory('Sample scene')
+    }
+    const clearCanvas = () => {
+      clearShapeItems()
+      const store = useStore.getState()
+      store.setShapes([])
+      store.setSelectedShapeIds([])
+      store.exitNodeEdit()
+      saveHistory('Clear canvas')
+    }
+    useStore.getState().setDemoApi({ loadSample, clearCanvas })
+
+    if (!canvasRef.current || scopeRef.current) {
+      return () => {
+        const api = useStore.getState().demoApi
+        if (api?.loadSample === loadSample) useStore.getState().setDemoApi(null)
+      }
+    }
     const scope = initEngine(canvasRef.current)
     scopeRef.current = scope
 
@@ -403,8 +426,9 @@ export default function Canvas() {
     // Initial sizing
     resizeCanvas(scope)
 
-    // Save initial state
+    // Save initial state, then drop in the sample so the first undo returns to a blank canvas.
     saveHistory('Initial')
+    loadSample()
 
     // ResizeObserver for robust container-based resize
     const ro = new ResizeObserver(() => {
@@ -431,6 +455,8 @@ export default function Canvas() {
       ro.disconnect()
       window.removeEventListener('resize', onWindowResize)
       mqDpr.removeEventListener('change', onDprChange)
+      const api = useStore.getState().demoApi
+      if (api?.loadSample === loadSample) useStore.getState().setDemoApi(null)
     }
   }, [saveHistory, resizeCanvas])
 
